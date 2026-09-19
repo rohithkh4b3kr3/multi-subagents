@@ -1,93 +1,68 @@
 #!/usr/bin/env python3
 """token-report: where do my Claude Code tokens go?
 
-Reads ~/.claude/projects/*/*.jsonl (local transcripts, nothing is sent anywhere).
+Reads ~/.claude/projects/**/*.jsonl (local transcripts, nothing is sent anywhere).
+Usage is counted once per API request (transcripts repeat it across rows).
 
   token-report              all history
-  token-report --days 7     only sessions modified in the last 7 days
-  token-report --project ai24c   only project dirs whose name contains this
+  token-report --days 7     only the last 7 days (including today)
+  token-report --project ai24c   only projects whose name contains this
   token-report --sessions   per-session table
 """
-import argparse, collections, glob, json, os, time
+import argparse
+import collections
+import os
+import sys
+from datetime import date, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import token_data  # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--days", type=float)
+ap.add_argument("--days", type=int)
 ap.add_argument("--project")
 ap.add_argument("--sessions", action="store_true")
 a = ap.parse_args()
 
-root = os.path.expanduser("~/.claude/projects")
-cutoff = time.time() - a.days * 86400 if a.days else 0
-USE = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
+data = token_data.scan()
+start = (date.today() - timedelta(days=a.days - 1)).isoformat() if a.days else None
+keep = lambda b: token_data.in_range(b["d"], start) and (not a.project or a.project in b["p"])
 
-usage = collections.Counter()
-tool_chars, tool_calls = collections.Counter(), collections.Counter()
-bash_cmds, mcp_calls = collections.Counter(), collections.Counter()
-per_session = []
+tot = collections.Counter()
+tools, bash, mcp, agents, skills = (collections.defaultdict(lambda: [0, 0]), collections.Counter(),
+                                    collections.Counter(), collections.Counter(), collections.Counter())
+for b in filter(keep, data["buckets"]):
+    for k in ("req", "in", "cw", "cr", "out"):
+        tot[k] += b[k]
+    for n, (c, ch) in b["tool"].items():
+        tools[n][0] += c; tools[n][1] += ch
+    bash.update(b["bash"]); mcp.update(b["mcp"]); agents.update(b["agent"]); skills.update(b["skill"])
 
-for f in sorted(glob.glob(f"{root}/*/*.jsonl")):
-    proj = os.path.basename(os.path.dirname(f))
-    if a.project and a.project not in proj:
-        continue
-    if os.path.getmtime(f) < cutoff:
-        continue
-    su, names, turns = collections.Counter(), {}, 0
-    for line in open(f, encoding="utf-8", errors="ignore"):
-        try:
-            r = json.loads(line)
-        except ValueError:
-            continue
-        m = r.get("message")
-        if not isinstance(m, dict):
-            continue
-        u = m.get("usage")
-        if u and m.get("role") == "assistant":
-            turns += 1
-            for k in USE:
-                su[k] += u.get(k) or 0
-        c = m.get("content")
-        if not isinstance(c, list):
-            continue
-        for x in c:
-            t = x.get("type")
-            if t == "tool_use":
-                names[x["id"]] = x["name"]
-                if x["name"] == "Bash":
-                    w = (x["input"].get("command") or "").split()
-                    if w:
-                        bash_cmds[w[0] if w[0] != "rtk" or len(w) < 2 else "rtk " + w[1]] += 1
-                if x["name"].startswith("mcp__"):
-                    mcp_calls[x["name"]] += 1
-            elif t == "tool_result":
-                cc = x.get("content")
-                if isinstance(cc, list):
-                    cc = " ".join(y.get("text", "") for y in cc if isinstance(y, dict))
-                nm = names.get(x.get("tool_use_id"), "?")
-                tool_chars[nm] += len(str(cc or ""))
-                tool_calls[nm] += 1
-    usage.update(su)
-    per_session.append((time.strftime("%m-%d %H:%M", time.localtime(os.path.getmtime(f))), proj[-28:], turns, su))
 
 def k(n):
     return f"{n/1000:,.0f}K" if n < 1e6 else f"{n/1e6:,.2f}M"
 
-ctx = usage["cache_creation_input_tokens"] + usage["cache_read_input_tokens"] + usage["input_tokens"]
-print(f"sessions: {len(per_session)}   assistant turns: {sum(s[2] for s in per_session)}")
-print(f"context re-read (cache): {k(usage['cache_read_input_tokens'])}   new context written: {k(usage['cache_creation_input_tokens'])}   output: {k(usage['output_tokens'])}")
-tot_tool = sum(tool_chars.values()) // 4
-print(f"tool output ~{k(tot_tool)} tokens = {tot_tool / max(usage['cache_creation_input_tokens'], 1) * 100:.0f}% of new context written")
-print("\ntool output share (chars/4):")
-T = sum(tool_chars.values()) or 1
-for n, v in tool_chars.most_common(8):
-    print(f"  {n[:44]:44} {v / T * 100:5.1f}%  {tool_calls[n]:4} calls  avg {v // max(tool_calls[n], 1) // 4} tok")
-print("\ntop shell commands:", ", ".join(f"{c} x{n}" for c, n in bash_cmds.most_common(10)) or "-")
-if mcp_calls:
-    print("MCP tool calls:", ", ".join(f"{c.split('__', 1)[1][:38]} x{n}" for c, n in mcp_calls.most_common(10)))
-else:
-    print("MCP tool calls: none (the token tools are not being used)")
+
+inp = tot["cr"] + tot["cw"] + tot["in"]
+tool_tok = sum(v[1] for v in tools.values()) // 4
+print(f"requests: {tot['req']:,}   (each request is one model call; a turn can make several)")
+print(f"history re-read (cache): {k(tot['cr'])} = {tot['cr'] / max(inp, 1) * 100:.0f}% of input   new context written: {k(tot['cw'])}   output: {k(tot['out'])}")
+print(f"tool output ~{k(tool_tok)} tokens (chars/4) = {tool_tok / max(tot['cw'], 1) * 100:.0f}% of new context written")
+print("\ntool output share:")
+T = sum(v[1] for v in tools.values()) or 1
+for n, (c, ch) in sorted(tools.items(), key=lambda kv: -kv[1][1])[:8]:
+    print(f"  {n[:44]:44} {ch / T * 100:5.1f}%  {c:4} calls  avg {ch // max(c, 1) // 4} tok")
+print("\ntop shell commands:", ", ".join(f"{c} x{n}" for c, n in bash.most_common(10)) or "-")
+print("MCP servers used:  ", ", ".join(f"{c} x{n}" for c, n in mcp.most_common()) or "none (the MCP tools are not being used)")
+print("subagents used:    ", ", ".join(f"{c} x{n}" for c, n in agents.most_common()) or "none")
+print("skills used:       ", ", ".join(f"{c} x{n}" for c, n in skills.most_common()) or "none")
+
 if a.sessions:
-    print("\nper session (date, project, turns, cache-read, new-ctx, output):")
-    for d, p, t, su in per_session:
-        print(f"  {d} {p:28} {t:4}  {k(su['cache_read_input_tokens']):>7} {k(su['cache_creation_input_tokens']):>7} {k(su['output_tokens']):>6}")
+    print("\nper session (end, project, requests, re-read, new-ctx, output):")
+    ss = [s for s in data["sessions"] if token_data.in_range(token_data._local_date(s["end"]), start)
+          and (not a.project or a.project in s["p"])]
+    for s in sorted(ss, key=lambda s: s["end"]):
+        print(f"  {token_data._local_date(s['end'])} {s['p'][:22]:22} {s['req']:5} {k(s['cr']):>7} {k(s['cw']):>7} {k(s['out']):>6}{'  (subagent)' if s['sub'] else ''}")
+
 print("\nlevers: /clear between tasks, /compact with a focus, delegate exploration to lean-explorer.")
-print("also: `rtk gain` (shell savings) and /context-mode:ctx-stats (sandbox savings).")
+print("also: `rtk gain` (shell savings), /context-mode:ctx-stats, and `token-dashboard` for the desktop view.")

@@ -130,6 +130,25 @@ if want agents; then
   run mkdir -p "$HOME/.claude/agents" "$HOME/.local/bin"
   for f in "$HERE"/agents/*.md; do run cp "$f" "$HOME/.claude/agents/"; done
   run install -m 0755 "$HERE/bin/token-report" "$HOME/.local/bin/token-report"
+  run install -m 0644 "$HERE/bin/token_data.py" "$HOME/.local/bin/token_data.py"
+  run install -m 0755 "$HERE/bin/token-dashboard" "$HOME/.local/bin/token-dashboard"
+  # Desktop launcher (Linux): appears in the app menu as "Token stack"
+  if [ "$(uname -s)" = Linux ]; then
+    run mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/icons"
+    run install -m 0644 "$HERE/assets/token-dashboard.svg" "$HOME/.local/share/icons/token-dashboard.svg"
+    if [ "$DRY" = 1 ]; then echo "   [dry-run] write ~/.local/share/applications/token-dashboard.desktop"; else
+      cat > "$HOME/.local/share/applications/token-dashboard.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Token stack
+Comment=Claude Code token usage
+Exec=$HOME/.local/bin/token-dashboard
+Icon=$HOME/.local/share/icons/token-dashboard.svg
+Terminal=false
+Categories=Development;
+DESKTOP
+    fi
+  fi
 fi
 
 if [ "$DEFAULT_AGENT" = 1 ]; then
@@ -154,4 +173,5 @@ case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to 
 say "Done"
 echo "Restart Claude Code, then check:  claude mcp list   /context-mode:ctx-doctor   rtk gain"
 echo "Try:  \"use lean-explorer to explain how <something> works\""
+echo "Desktop view:  token-dashboard   (or \"Token stack\" in your app menu)"
 echo "After a week:  token-report --days 7"

@@ -2,3 +2,6 @@
 bin/token-report text eol=lf
 *.md text eol=lf
 *.ps1 text eol=crlf
+bin/token-dashboard text eol=lf
+bin/token_data.py text eol=lf
+*.svg text eol=lf

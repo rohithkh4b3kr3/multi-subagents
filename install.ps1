@@ -175,7 +175,12 @@ if (Want 'agents') {
   Run { New-Item -ItemType Directory -Force -Path $Agents | Out-Null } "mkdir $Agents"
   foreach ($f in Get-ChildItem "$Here\agents\*.md") { Run { Copy-Item $f.FullName $Agents -Force } "copy $($f.Name) -> $Agents" }
   Run { Copy-Item "$Here\bin\token-report" (Join-Path $Bin 'token-report.py') -Force } "copy token-report.py -> $Bin"
+  Run { Copy-Item "$Here\bin\token_data.py" (Join-Path $Bin 'token_data.py') -Force } "copy token_data.py -> $Bin"
+  Run { Copy-Item "$Here\bin\token-dashboard" (Join-Path $Bin 'token-dashboard.py') -Force } "copy token-dashboard.py -> $Bin"
   $pyCmd = if ($Py) { $Py } else { 'python' }
+  Run { Set-Content -Path (Join-Path $Bin 'token-dashboard.cmd') -Value "@echo off`r`n$pyCmd `"%~dp0token-dashboard.py`" %*" -Encoding ASCII } 'write token-dashboard.cmd'
+  # Start Menu shortcut "Token stack" (runs minimised so no console window lingers)
+  Run { $lnkDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'; $w = New-Object -ComObject WScript.Shell; $l = $w.CreateShortcut((Join-Path $lnkDir 'Token stack.lnk')); $l.TargetPath = (Join-Path $Bin 'token-dashboard.cmd'); $l.WindowStyle = 7; $l.Description = 'Claude Code token usage'; $l.Save() } 'create Start Menu shortcut'
   Run { Set-Content -Path (Join-Path $Bin 'token-report.cmd') -Value "@echo off`r`n$pyCmd `"%~dp0token-report.py`" %*" -Encoding ASCII } 'write token-report.cmd'
 }
 
@@ -195,4 +200,5 @@ if ($DefaultAgent) {
 Say 'Done'
 Write-Host 'Open a NEW terminal (PATH changed), restart Claude Code, then check:  claude mcp list   /context-mode:ctx-doctor   rtk gain'
 Write-Host 'Try:  "use lean-explorer to explain how <something> works"'
+Write-Host 'Desktop view:  token-dashboard   (or "Token stack" in the Start Menu)'
 Write-Host 'After a week:  token-report --days 7'

@@ -21,7 +21,10 @@ if os.path.exists(p):
         del d["agent"]; json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n"); print("removed default agent setting")
 PY
 rm -f "$HOME/.claude/agents/lean-main.md" "$HOME/.claude/agents/lean-coder.md" "$HOME/.claude/agents/lean-explorer.md" \
-      "$HOME/.claude/agents/lean-reviewer.md" "$HOME/.local/bin/token-report"
+      "$HOME/.claude/agents/lean-reviewer.md" "$HOME/.local/bin/token-report" \
+      "$HOME/.local/bin/token_data.py" "$HOME/.local/bin/token-dashboard" \
+      "$HOME/.local/share/applications/token-dashboard.desktop" "$HOME/.local/share/icons/token-dashboard.svg"
+rm -rf "$HOME/.cache/token-dashboard"
 rm -rf "$STACK"
 echo "Removed. The rtk binary (~/.local/bin/rtk) is left in place; delete it yourself if you want."
 echo "Per-project graph data lives in each repo's .code-review-graph/ folder."
