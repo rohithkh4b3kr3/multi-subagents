@@ -131,8 +131,41 @@ What it shows, for Today / 7 days / 30 days / All, and per project:
 - Which tools send the most output back into the conversation, and which shell commands run most.
 - **"Is the stack actually used?"**: for each component, installed or not, and how many times it was really called in the range. "Installed, not used" is the useful warning here.
 - Your biggest sessions, flagged when a session is long enough that `/clear` would help.
+- **Who is using how much:** one row per device if you share an account (see below).
 
 It is a small local web page served from the Python standard library, bound to `127.0.0.1` only (other hosts are rejected), read-only, with no external requests, no accounts and no dependencies to install. Command *names* are shown, never arguments or your prompts. `token-dashboard --no-open` just prints the URL; `--browser` uses a normal browser tab.
+
+## Shared account: who is using how much
+
+If several people use one Claude account, each device only knows its own usage, and Claude gives no per-person breakdown. So each device exports a small summary to a **shared folder**, and the dashboard merges them into a **"Who is using how much"** table: per device, requests, new context, output and re-read, a share bar, and when each device last reported (stale ones are flagged).
+
+**What is shared:** per-day token totals, counts of MCP/subagent/skill calls, and the device name. **Not shared:** prompts, replies, commands, file names, or project names (project names only if you add `--with-projects`). Each person runs the export on their own device and can open the JSON file to see exactly what it contains. Please agree on this with everyone on the account first: it is transparent by design, not a hidden monitor.
+
+**1. Pick a folder everyone can reach.** Any folder synced between the devices works: Syncthing, Google Drive, Dropbox, OneDrive, or a network share. (A private Git repo also works if you commit the folder yourself.)
+
+**2. On every device, once:**
+
+```bash
+./install.sh --team-dir ~/Sync/token-usage --device-name alice-laptop      # Linux / macOS / WSL
+```
+```powershell
+.\install.ps1 -TeamDir "C:\Users\alice\Sync\token-usage" -DeviceName alice-pc   # Windows
+```
+
+This writes `alice-laptop.json` into the folder and schedules a refresh every 15 minutes (a user cron job on Linux/macOS, a scheduled task on Windows). Use a **different `--device-name` per device**. Already installed? Skip the installer: `token-report --export ~/Sync/token-usage --name alice-laptop`, and add your own cron/Task Scheduler entry that repeats it.
+
+**3. Look at it:** open `token-dashboard` (the export remembers the folder), or in a terminal:
+
+```bash
+token-report --team --days 7
+```
+
+Ranking defaults to **new context + output** (fresh work, the best available proxy for what uses up a plan's limits); switch to re-read or request counts with the buttons on the card. Limits to know about:
+
+- Only devices that run the export are counted. Use on claude.ai in a browser, the mobile app, or other tools is invisible here.
+- This is a client-side count from Claude Code's own transcripts, not Anthropic's official quota accounting, so it will not match the plan's usage meter exactly.
+- A device shows the state as of its last export (up to 15 minutes old); this device is always live.
+- Files in the shared folder are treated as untrusted input by the dashboard (type-checked, size-limited, shown as plain text).
 
 ## Measure it in the terminal
 
@@ -187,7 +220,7 @@ agents/lean-explorer.md   read-only exploration agent (haiku)
 agents/lean-reviewer.md   read-only review agent (sonnet)
 bin/token-dashboard       desktop window with usage charts and stack status
 bin/token_data.py         shared transcript reader (used by both tools)
-bin/token-report          usage report in the terminal
+bin/token-report          usage report in the terminal; --export / --team for shared accounts
 assets/token-dashboard.svg  app icon
 install.sh / uninstall.sh        Linux, macOS, WSL
 install.ps1 / uninstall.ps1      native Windows (PowerShell)

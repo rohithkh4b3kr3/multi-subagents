@@ -8,6 +8,13 @@ Usage is counted once per API request (transcripts repeat it across rows).
   token-report --days 7     only the last 7 days (including today)
   token-report --project ai24c   only projects whose name contains this
   token-report --sessions   per-session table
+
+Shared account, several people/devices:
+  token-report --export DIR [--name alice-laptop]   write this device's daily totals to DIR
+  token-report --team [DIR] [--days 7]              usage per device, from DIR
+DIR is any folder everyone can reach (Syncthing, Drive, Dropbox, OneDrive, network share).
+The export holds numbers and the device name only: no prompts, commands or file names
+(project names only with --with-projects).
 """
 import argparse
 import collections
@@ -22,25 +29,62 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--days", type=int)
 ap.add_argument("--project")
 ap.add_argument("--sessions", action="store_true")
+ap.add_argument("--export", metavar="DIR")
+ap.add_argument("--name")
+ap.add_argument("--with-projects", action="store_true")
+ap.add_argument("--team", nargs="?", const="", metavar="DIR")
 a = ap.parse_args()
+
+
+def k(n):
+    return f"{n/1000:,.0f}K" if n < 1e6 else f"{n/1e6:,.2f}M"
+
 
 data = token_data.scan()
 start = (date.today() - timedelta(days=a.days - 1)).isoformat() if a.days else None
+if a.export:
+    d = os.path.abspath(os.path.expanduser(a.export))
+    path, days = token_data.export(d, a.name, a.with_projects, data)
+    token_data.save_config(team_dir=d, device=a.name)
+    print(f"exported {days} days for device '{token_data.device_name(a.name)}' to {path}")
+    print("shared: per-day token totals and counts of MCP/subagent/skill use"
+          + (", plus project names" if a.with_projects else " (no prompts, commands, file or project names)"))
+    print(f"remembered {d} as the team folder for token-dashboard")
+    sys.exit(0)
+
+if a.team is not None:
+    tdir = os.path.abspath(os.path.expanduser(a.team)) if a.team else token_data.load_config().get("team_dir")
+    if not tdir:
+        sys.exit("no team folder yet: run  token-report --export DIR  on each device first")
+    me = token_data.device_name(a.name)
+    rows = [(me + " (this device)", "live", token_data.local_days(data))]
+    rows += [(t["device"], t["exported"][:16].replace("T", " "), t["days"]) for t in token_data.read_team(tdir, skip_device=me)]
+    print(f"usage per device from {tdir}" + (f", last {a.days} days" if a.days else ", all time"))
+    print(f"  {'device':28} {'last update':17} {'requests':>9} {'new ctx':>8} {'re-read':>9} {'output':>8}")
+    tot = collections.Counter()
+    for name, upd, days in sorted(rows, key=lambda r: -sum(x["cr"] for x in r[2] if token_data.in_range(x["d"], (date.today() - timedelta(days=a.days - 1)).isoformat() if a.days else None))):
+        st = (date.today() - timedelta(days=a.days - 1)).isoformat() if a.days else None
+        c = collections.Counter()
+        for x in days:
+            if token_data.in_range(x["d"], st):
+                for f in ("req", "cw", "cr", "out"):
+                    c[f] += x[f]
+        tot.update(c)
+        print(f"  {name[:28]:28} {upd:17} {c['req']:9,} {k(c['cw']):>8} {k(c['cr']):>9} {k(c['out']):>8}")
+    print(f"  {'total':28} {'':17} {tot['req']:9,} {k(tot['cw']):>8} {k(tot['cr']):>9} {k(tot['out']):>8}")
+    sys.exit(0)
+
 keep = lambda b: token_data.in_range(b["d"], start) and (not a.project or a.project in b["p"])
 
 tot = collections.Counter()
 tools, bash, mcp, agents, skills = (collections.defaultdict(lambda: [0, 0]), collections.Counter(),
                                     collections.Counter(), collections.Counter(), collections.Counter())
 for b in filter(keep, data["buckets"]):
-    for k in ("req", "in", "cw", "cr", "out"):
-        tot[k] += b[k]
+    for f in ("req", "in", "cw", "cr", "out"):
+        tot[f] += b[f]
     for n, (c, ch) in b["tool"].items():
         tools[n][0] += c; tools[n][1] += ch
     bash.update(b["bash"]); mcp.update(b["mcp"]); agents.update(b["agent"]); skills.update(b["skill"])
-
-
-def k(n):
-    return f"{n/1000:,.0f}K" if n < 1e6 else f"{n/1e6:,.2f}M"
 
 
 inp = tot["cr"] + tot["cw"] + tot["in"]

@@ -7,17 +7,21 @@
 #   ./install.sh -y              no confirmation prompt
 #   ./install.sh --skip rtk,ctx  skip components: rtk | crg | ts | ctx | cave | graphify | agents
 #   ./install.sh --default-agent make lean-main your default agent in ~/.claude/settings.json
+#   ./install.sh --team-dir DIR [--device-name NAME]   share this device's usage totals (numbers only)
+#                                with the people on your Claude account via folder DIR; exports every 15 min
 #   WORKSPACE_ROOTS=~/code ./install.sh   folders token-savior may index (default: $HOME)
 #
 # Safe to re-run. Backs up ~/.claude/settings.json and ~/.claude.json first.
 set -euo pipefail
 
-DRY=0; YES=0; DEFAULT_AGENT=0; SKIP=","
+DRY=0; YES=0; DEFAULT_AGENT=0; TEAM_DIR=""; DEVICE_NAME=""; SKIP=","
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     -y|--yes) YES=1 ;;
     --default-agent) DEFAULT_AGENT=1 ;;
+    --team-dir) TEAM_DIR="$2"; shift ;;
+    --device-name) DEVICE_NAME="$2"; shift ;;
     --skip) SKIP=",$2,"; shift ;;
     -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -56,6 +60,7 @@ This will:
   - $(want graphify && echo "pip-install graphify into $VENV and register its /graphify skill (adds 3 lines to ~/.claude/CLAUDE.md)" || echo "(skip graphify)")
   - $(want cave   && echo "install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)" || echo "(skip caveman)")
   - $(want agents && echo "copy 4 agents to ~/.claude/agents and token-report to ~/.local/bin" || echo "(skip agents)")
+$([ -n "$TEAM_DIR" ] && echo "  - export this device's per-day token totals (numbers + device name only) to $TEAM_DIR every 15 min via a user cron job")
 $([ "$DEFAULT_AGENT" = 1 ] && echo "  - set \"agent\": \"lean-main\" in ~/.claude/settings.json (every session runs as lean-main)")
 These are third-party tools that add hooks to every Claude Code session. Read the README first.
 EOF
@@ -167,6 +172,17 @@ else:
     print("   default agent set to lean-main")
 PY
   fi
+fi
+
+if [ -n "$TEAM_DIR" ]; then
+  say "Team usage sharing"
+  NAME_ARG=(); [ -n "$DEVICE_NAME" ] && NAME_ARG=(--name "$DEVICE_NAME")
+  run "$HOME/.local/bin/token-report" --export "$TEAM_DIR" "${NAME_ARG[@]}"
+  CRON_LINE="*/15 * * * * $HOME/.local/bin/token-report --export \"$TEAM_DIR\" ${DEVICE_NAME:+--name \"$DEVICE_NAME\"} >/dev/null 2>&1 # multi-subagents"
+  if [ "$DRY" = 1 ]; then echo "   [dry-run] add cron line: $CRON_LINE"
+  elif command -v crontab >/dev/null 2>&1; then
+    ( crontab -l 2>/dev/null | grep -v "# multi-subagents"; echo "$CRON_LINE" ) | crontab - && echo "   cron job added (every 15 min); remove with ./uninstall.sh"
+  else echo "   no crontab here; run this yourself periodically: token-report --export \"$TEAM_DIR\""; fi
 fi
 
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to your PATH" ;; esac

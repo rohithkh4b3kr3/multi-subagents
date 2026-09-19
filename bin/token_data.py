@@ -12,10 +12,17 @@ Two things this module gets right that a naive sum does not:
 import glob
 import json
 import os
+import re
+import socket
+import tempfile
 import time
 from datetime import datetime, timezone
 
 ROOT = os.path.expanduser("~/.claude/projects")
+CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"), "token-stack")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+_NAME_BAD = re.compile(r"[^A-Za-z0-9._ -]")
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _FILE_CACHE = {}          # path -> (size, mtime, parsed)
 _DATE_CACHE = {}          # "YYYY-MM-DDTHH:MM" -> local "YYYY-MM-DD"
 _SKIP_CMDS = {"cd", "export", "set", "echo", "true", "sleep", "source", ".", "unset", "exec", "env", "time", "sudo", "timeout",
@@ -177,3 +184,105 @@ def scan(root=None):
 
 def in_range(date_str, start, end=None):
     return (not start or date_str >= start) and (not end or date_str <= end)
+
+
+# --------------------------------------------------------------------------- team / devices
+# Several people can share one Claude account. Each device exports its own per-day totals to a
+# shared folder (any way of sharing a folder works); the dashboard merges them. Files from other
+# devices are UNTRUSTED input: everything is type-checked and size-limited before use.
+
+def load_config():
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            c = json.load(f)
+        return c if isinstance(c, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_config(**kw):
+    c = load_config()
+    c.update({k: v for k, v in kw.items() if v is not None})
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(c, f, indent=2)
+    return c
+
+
+def device_name(override=None):
+    n = override or os.environ.get("TOKEN_STACK_DEVICE") or load_config().get("device") or socket.gethostname() or "unknown"
+    return _NAME_BAD.sub("_", str(n)).strip()[:40] or "unknown"
+
+
+def _int(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 10 ** 13 else 0
+
+
+def _counts(d):
+    if not isinstance(d, dict):
+        return {}
+    return {str(k)[:60]: _int(v) for k, v in list(d.items())[:100]}
+
+
+def export(dirpath, name=None, with_projects=False, data=None):
+    """Write this device's per-day totals to <dirpath>/<device>.json (atomic). Returns (path, days)."""
+    data = data or scan()
+    dev = device_name(name)
+    merged = {}
+    for b in data["buckets"]:
+        key = (b["d"], b["p"] if with_projects else "")
+        m = merged.setdefault(key, {"d": b["d"], "p": key[1], "req": 0, "in": 0, "cw": 0, "cr": 0, "out": 0,
+                                    "agent": {}, "mcp": {}, "skill": {}})
+        for k in ("req", "in", "cw", "cr", "out"):
+            m[k] += b[k]
+        for g in ("agent", "mcp", "skill"):
+            for n, v in b[g].items():
+                m[g][n] = m[g].get(n, 0) + v
+    doc = {"schema": 1, "device": dev, "exported": datetime.now().astimezone().isoformat(timespec="seconds"),
+           "projects_included": bool(with_projects), "buckets": sorted(merged.values(), key=lambda m: m["d"])}
+    os.makedirs(dirpath, exist_ok=True)
+    path = os.path.join(dirpath, re.sub(r"\s+", "-", dev) + ".json")
+    fd, tmp = tempfile.mkstemp(dir=dirpath, suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(doc, f)
+    os.replace(tmp, path)
+    return path, len(doc["buckets"])
+
+
+def read_team(dirpath, skip_device=None):
+    """Read other devices' exports. Returns [{device, exported, days:[{d,req,in,cw,cr,out}]}]."""
+    out = []
+    if not dirpath or not os.path.isdir(dirpath):
+        return out
+    for f in sorted(glob.glob(os.path.join(dirpath, "*.json")))[:50]:
+        try:
+            if os.path.getsize(f) > 5_000_000:
+                continue
+            with open(f, encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(doc, dict) or doc.get("schema") != 1 or not isinstance(doc.get("buckets"), list):
+            continue
+        dev = _NAME_BAD.sub("_", str(doc.get("device", ""))).strip()[:40]
+        if not dev or (skip_device and dev.lower() == skip_device.lower()):
+            continue
+        days = {}
+        for b in doc["buckets"][:20000]:
+            if not isinstance(b, dict) or not isinstance(b.get("d"), str) or not _DATE_RE.fullmatch(b["d"]):
+                continue
+            e = days.setdefault(b["d"], {"d": b["d"], "req": 0, "in": 0, "cw": 0, "cr": 0, "out": 0})
+            for k in ("req", "in", "cw", "cr", "out"):
+                e[k] += _int(b.get(k))
+        out.append({"device": dev, "exported": str(doc.get("exported", ""))[:32], "days": sorted(days.values(), key=lambda x: x["d"])})
+    return out
+
+
+def local_days(data):
+    """This device's live per-day totals in the same shape read_team() returns."""
+    days = {}
+    for b in data["buckets"]:
+        e = days.setdefault(b["d"], {"d": b["d"], "req": 0, "in": 0, "cw": 0, "cr": 0, "out": 0})
+        for k in ("req", "in", "cw", "cr", "out"):
+            e[k] += b[k]
+    return sorted(days.values(), key=lambda x: x["d"])

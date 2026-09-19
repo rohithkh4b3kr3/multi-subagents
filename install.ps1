@@ -9,6 +9,7 @@
   .\install.ps1                         # asks once, then installs
   .\install.ps1 -Yes -Skip rtk,ctx      # no prompt; skip components: rtk | crg | ts | ctx | cave | graphify | agents
   .\install.ps1 -DefaultAgent           # make lean-main your default agent in ~\.claude\settings.json
+  .\install.ps1 -TeamDir \\pc\share\usage -DeviceName alice-pc   # share this device's usage totals (numbers only), exported every 15 min
   .\install.ps1 -WorkspaceRoots C:\code # folders token-savior may index (default: your user folder)
 
   If scripts are blocked:  powershell -ExecutionPolicy Bypass -File .\install.ps1
@@ -18,6 +19,8 @@ param(
   [switch]$DryRun,
   [switch]$Yes,
   [switch]$DefaultAgent,
+  [string]$TeamDir = '',
+  [string]$DeviceName = '',
   [string[]]$Skip = @(),
   [string]$WorkspaceRoots = $env:USERPROFILE
 )
@@ -75,6 +78,7 @@ This will:
   - $(if (Want 'graphify') { "pip-install graphify into $Venv and register its /graphify skill (adds 3 lines to ~\.claude\CLAUDE.md)" } else { '(skip graphify)' })
   - $(if (Want 'cave')   { 'install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)' } else { '(skip caveman)' })
   - $(if (Want 'agents') { "copy 4 agents to $Agents and token-report to $Bin" } else { '(skip agents)' })
+$(if ($TeamDir) { "  - export this device's per-day token totals (numbers and device name only) to $TeamDir every 15 minutes via a scheduled task" })
 These are third-party tools that add hooks to every Claude Code session. Read the README first.
 "@
 if (-not $DryRun -and -not $Yes) {
@@ -182,6 +186,15 @@ if (Want 'agents') {
   # Start Menu shortcut "Token stack" (runs minimised so no console window lingers)
   Run { $lnkDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'; $w = New-Object -ComObject WScript.Shell; $l = $w.CreateShortcut((Join-Path $lnkDir 'Token stack.lnk')); $l.TargetPath = (Join-Path $Bin 'token-dashboard.cmd'); $l.WindowStyle = 7; $l.Description = 'Claude Code token usage'; $l.Save() } 'create Start Menu shortcut'
   Run { Set-Content -Path (Join-Path $Bin 'token-report.cmd') -Value "@echo off`r`n$pyCmd `"%~dp0token-report.py`" %*" -Encoding ASCII } 'write token-report.cmd'
+}
+
+if ($TeamDir) {
+  Say 'Team usage sharing (numbers and device name only)'
+  $exportArgs = @('--export', $TeamDir)
+  if ($DeviceName) { $exportArgs += @('--name', $DeviceName) }
+  Run { & (Join-Path $Bin 'token-report.cmd') @exportArgs } 'token-report --export'
+  $tr = '"' + (Join-Path $Bin 'token-report.cmd') + '" --export "' + $TeamDir + '"' + $(if ($DeviceName) { ' --name "' + $DeviceName + '"' } else { '' })
+  Run { schtasks /Create /F /SC MINUTE /MO 15 /TN 'multi-subagents token export' /TR $tr | Out-Null } 'schtasks create: export every 15 minutes'
 }
 
 if ($DefaultAgent) {

@@ -9,6 +9,7 @@ Closing the window stops the server. Standard library only; nothing leaves your 
   token-dashboard --no-open    just serve, print the URL
   token-dashboard --browser    use your default browser tab instead of an app window
   token-dashboard --port 8765
+  token-dashboard --team DIR --name alice-laptop   include other devices (shared account)
 """
 import argparse
 import json
@@ -29,6 +30,7 @@ HOME = Path.home()
 CLAUDE = HOME / ".claude"
 _lock = threading.Lock()
 _rtk_cache = (0.0, None)
+TEAM_DIR = None
 
 
 def _json(path):
@@ -78,6 +80,11 @@ def payload():
         d = token_data.scan()
     d["status"] = status()
     d["rtk"] = rtk_summary() or {}
+    me = token_data.device_name()
+    team_dir = TEAM_DIR or token_data.load_config().get("team_dir")
+    devices = [{"device": me, "local": True, "exported": "", "days": token_data.local_days(d)}]
+    devices += [dict(t, local=False) for t in token_data.read_team(team_dir, skip_device=me)]
+    d["team"] = {"dir": team_dir, "device": me, "devices": devices}
     return d
 
 
@@ -139,7 +146,13 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-open", action="store_true")
     ap.add_argument("--browser", action="store_true", help="open a normal browser tab instead of an app window")
+    ap.add_argument("--team", metavar="DIR", help="shared folder with other devices' exports (default: the one remembered by token-report --export)")
+    ap.add_argument("--name", help="this device's name in the team view (default: hostname)")
     a = ap.parse_args()
+    global TEAM_DIR
+    TEAM_DIR = os.path.abspath(os.path.expanduser(a.team)) if a.team else None
+    if a.name:
+        os.environ["TOKEN_STACK_DEVICE"] = a.name
 
     srv = None
     for port in range(a.port, a.port + 20):
@@ -258,6 +271,11 @@ tr:last-child td { border-bottom: 0; }
 .st { display: inline-flex; align-items: center; gap: 6px; }
 .ic { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; font-size: 11px; font-weight: 700; color: #fff; }
 .ic.good { background: var(--good); } .ic.warn { background: var(--warn); color: #1a1a19; } .ic.bad { background: var(--bad); } .ic.na { background: var(--ink-3); }
+.share { display: flex; align-items: center; gap: 8px; min-width: 170px; }
+.share .t { flex: 1; height: 10px; }
+.share .bar { height: 10px; background: var(--series); border-radius: 0 4px 4px 0; min-width: 2px; }
+.share .pct { min-width: 38px; text-align: right; color: var(--ink-2); }
+tr.total td { font-weight: 600; border-top: 1px solid var(--grid); }
 .empty { color: var(--ink-3); padding: 12px 0; }
 footer { color: var(--ink-3); font-size: 12px; margin-top: 16px; }
 </style>
@@ -282,6 +300,14 @@ footer { color: var(--ink-3); font-size: 12px; margin-top: 16px; }
     </div>
     <div class="tiles" id="tiles"></div>
   </div>
+
+  <section class="card" style="margin-top:12px" id="teamCard">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <div><h2>Who is using how much</h2><p class="hint" id="teamHint"></p></div>
+      <div class="seg" id="tmetric" role="group" aria-label="Rank devices by"></div>
+    </div>
+    <div class="wrap" id="team"></div>
+  </section>
 
   <section class="card" style="margin-top:12px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
@@ -313,7 +339,7 @@ footer { color: var(--ink-3); font-size: 12px; margin-top: 16px; }
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
-const ST = { range: "30", project: "all", metric: "cr", table: false, theme: "auto" };
+const ST = { range: "30", project: "all", metric: "cr", tmetric: "fresh", table: false, theme: "auto" };
 try { Object.assign(ST, JSON.parse(localStorage.getItem("token-dashboard") || "{}")); } catch (e) {}
 { const q = new URLSearchParams(location.search).get("theme"); if (["auto", "light", "dark"].includes(q)) ST.theme = q; }
 const save = () => { try { localStorage.setItem("token-dashboard", JSON.stringify(ST)); } catch (e) {} };
@@ -334,9 +360,12 @@ const iso = d => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.get
 const daysAgo = n => { const d = new Date(); d.setDate(d.getDate() - n); return iso(d); };
 const comma = n => Math.round(n).toLocaleString("en-US");
 function compact(n) {
-  const f = (v, u) => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)).replace(/\.?0+$/, "") + u;
-  if (n >= 1e9) return f(n / 1e9, "B");
-  if (n >= 1e6) return f(n / 1e6, "M");
+  const f = (v, u) => {
+    const x = v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+    return (x.includes(".") ? x.replace(/0+$/, "").replace(/\.$/, "") : x) + u;   // trim zeros only after a decimal point
+  };
+  if (n >= 999.5e6) return f(n / 1e9, "B");
+  if (n >= 999.5e3) return f(n / 1e6, "M");
   if (n >= 1e3) return f(n / 1e3, "K");
   return String(Math.round(n));
 }
@@ -545,6 +574,49 @@ function renderUsage(A) {
   $("#usage").replaceChildren(t);
 }
 
+/* ---------- team / devices ---------- */
+const TMETRICS = [["fresh", "New + output"], ["cr", "Re-read"], ["req", "Requests"]];
+function ago(iso) {
+  const t = new Date(iso).getTime();
+  if (!iso || isNaN(t)) return { text: "unknown", hours: Infinity };
+  const h = (Date.now() - t) / 3600000;
+  return { text: h < 1 ? Math.max(1, Math.round(h * 60)) + " min ago" : h < 48 ? Math.round(h) + " h ago" : Math.round(h / 24) + " d ago", hours: h };
+}
+function renderTeam() {
+  const T = DATA.team, start = rangeStart();
+  const tm = $("#tmetric"); tm.replaceChildren();
+  for (const [k, label] of TMETRICS) {
+    const b = h("button", { "aria-pressed": String(ST.tmetric === k) }, label);
+    b.onclick = () => { ST.tmetric = k; save(); renderTeam(); };
+    tm.append(b);
+  }
+  const rows = T.devices.map(dv => {
+    const c = { req: 0, cw: 0, cr: 0, out: 0, in: 0 };
+    for (const x of dv.days) if (!start || x.d >= start) for (const f in c) c[f] += x[f] || 0;
+    c.fresh = c.cw + c.out + c.in;
+    return { dv, c };
+  }).sort((a, b) => b.c[ST.tmetric] - a.c[ST.tmetric]);
+  const total = rows.reduce((s, r) => s + r.c[ST.tmetric], 0) || 1;
+  const sum = f => rows.reduce((s, r) => s + r.c[f], 0);
+  $("#teamHint").textContent = T.dir
+    ? "Devices that share " + T.dir + ". This device is live; the others update whenever they export. Ranked by " + TMETRICS.find(x => x[0] === ST.tmetric)[1].toLowerCase() + " in the selected date range."
+    : "Only this device is shown. To add the other people on your account, run on each device: token-report --export <shared folder> --name <who>, then restart this window.";
+  const t = h("table", null, h("thead", null, h("tr", null, h("th", null, "Device"), h("th", null, "Last update"),
+    ...["Requests", "New context", "Output", "Re-read"].map(x => h("th", { class: "num" }, x)), h("th", null, "Share"))), h("tbody"));
+  for (const { dv, c } of rows) {
+    let upd;
+    if (dv.local) upd = statusCell("good", "live");
+    else { const a = ago(dv.exported); upd = a.hours > 36 ? statusCell("warn", a.text + " (stale)") : h("span", null, a.text); }
+    const pct = c[ST.tmetric] / total * 100;
+    t.tBodies[0].append(h("tr", null, h("td", null, dv.device + (dv.local ? " (this device)" : "")), h("td", null, upd),
+      ...[c.req, c.cw, c.out, c.cr].map(n => h("td", { class: "num" }, comma(n))),
+      h("td", null, h("div", { class: "share" }, h("div", { class: "t" }, h("div", { class: "bar", style: "width:" + Math.max(0, pct).toFixed(1) + "%" })), h("div", { class: "pct" }, Math.round(pct) + "%")))));
+  }
+  t.tBodies[0].append(h("tr", { class: "total" }, h("td", null, "Total"), h("td", null, ""),
+    ...[sum("req"), sum("cw"), sum("out"), sum("cr")].map(n => h("td", { class: "num" }, comma(n))), h("td", null, "")));
+  $("#team").replaceChildren(t);
+}
+
 /* ---------- sessions ---------- */
 function renderSessions() {
   const start = rangeStart();
@@ -568,7 +640,7 @@ function render() {
   if (!DATA) return;
   buildFilters();
   const A = slice();
-  renderTop(A); renderChart(A); renderBars(A); renderUsage(A); renderSessions();
+  renderTop(A); renderTeam(); renderChart(A); renderBars(A); renderUsage(A); renderSessions();
 }
 function applyTheme() {
   const r = document.documentElement;
@@ -586,7 +658,7 @@ async function load(manual) {
       const dt = new Date(s.end); s.endDate = isNaN(dt) ? s.end.slice(0, 10) : iso(dt);
     }
     DATA = d;
-    $("#updated").textContent = "updated " + new Date().toLocaleTimeString();
+    $("#updated").textContent = "device " + DATA.team.device + " · updated " + new Date().toLocaleTimeString();
     render();
   } catch (e) {
     $("#updated").textContent = "could not load data: " + e.message;

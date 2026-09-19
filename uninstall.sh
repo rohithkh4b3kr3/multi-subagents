@@ -25,6 +25,8 @@ rm -f "$HOME/.claude/agents/lean-main.md" "$HOME/.claude/agents/lean-coder.md" "
       "$HOME/.local/bin/token_data.py" "$HOME/.local/bin/token-dashboard" \
       "$HOME/.local/share/applications/token-dashboard.desktop" "$HOME/.local/share/icons/token-dashboard.svg"
 rm -rf "$HOME/.cache/token-dashboard"
+command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -q "# multi-subagents" && { crontab -l | grep -v "# multi-subagents" | crontab -; echo "removed cron job"; }
+rm -rf "$HOME/.config/token-stack"
 rm -rf "$STACK"
 echo "Removed. The rtk binary (~/.local/bin/rtk) is left in place; delete it yourself if you want."
 echo "Per-project graph data lives in each repo's .code-review-graph/ folder."

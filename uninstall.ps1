@@ -24,6 +24,8 @@ foreach ($f in 'lean-main.md', 'lean-coder.md', 'lean-explorer.md', 'lean-review
 Remove-Item "$Bin\token-report.py", "$Bin\token-report.cmd", "$Bin\token_data.py", "$Bin\token-dashboard.py", "$Bin\token-dashboard.cmd" -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Token stack.lnk') -ErrorAction SilentlyContinue
 Remove-Item "$Home_\.cache\token-dashboard" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $env:APPDATA 'token-stack') -Recurse -Force -ErrorAction SilentlyContinue
+schtasks /Delete /TN "multi-subagents token export" /F 2>&1 | Out-Null
 Remove-Item "$Home_\.local\share\multi-subagents" -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Removed. rtk.exe and the PATH entry ($Bin) are left in place; delete them yourself if you want."
 Write-Host "Per-project graph data lives in each repo's .code-review-graph\ folder."
