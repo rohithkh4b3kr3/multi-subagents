@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""token-statusline: Claude Code status line that shows how big the conversation has grown.
+
+Every request re-sends the whole conversation, so its size is what each new message costs.
+Claude Code runs this after each turn and passes JSON on stdin (incl. transcript_path).
+Prints one line, e.g.  [Sonnet 5] ctx 132K  each request re-reads this; /handoff then /clear at a task change
+Standard library only; reads only the tail of the local transcript.
+"""
+import json
+import os
+import sys
+
+GREEN, YELLOW, RED, DIM, RESET = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
+WARN, HIGH = 100_000, 200_000
+
+
+def current_context(path):
+    """Input size of the most recent model request (what the next request will re-send, at least)."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            f.seek(max(0, size - 400_000))
+            lines = f.read().decode("utf-8", "ignore").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if '"usage"' not in line:
+            continue
+        try:
+            u = (json.loads(line).get("message") or {}).get("usage")
+        except ValueError:
+            continue
+        if u:
+            return sum(u.get(k) or 0 for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    return None
+
+
+def main():
+    try:
+        d = json.load(sys.stdin)
+    except ValueError:
+        return
+    model = d.get("model") or {}
+    name = model.get("display_name") or model.get("id") or "" if isinstance(model, dict) else str(model)
+    ctx = current_context(d.get("transcript_path") or "")
+    head = f"[{name}] " if name else ""
+    if ctx is None:
+        print(f"{head}{DIM}ctx --{RESET}")
+        return
+    k = f"{ctx / 1000:.0f}K"
+    if ctx >= HIGH:
+        print(f"{head}{RED}ctx {k}{RESET}  {DIM}large: /handoff, then /clear{RESET}")
+    elif ctx >= WARN:
+        print(f"{head}{YELLOW}ctx {k}{RESET}  {DIM}every request re-reads this; /clear at a task change{RESET}")
+    else:
+        print(f"{head}{GREEN}ctx {k}{RESET}")
+
+
+if __name__ == "__main__":
+    main()

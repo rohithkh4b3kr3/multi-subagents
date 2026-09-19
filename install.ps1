@@ -9,6 +9,7 @@
   .\install.ps1                         # asks once, then installs
   .\install.ps1 -Yes -Skip rtk,ctx      # no prompt; skip components: rtk | crg | ts | ctx | cave | graphify | agents
   .\install.ps1 -DefaultAgent           # make lean-main your default agent in ~\.claude\settings.json
+  .\install.ps1 -StatusLine             # show conversation size in Claude Code's status line (colour-coded)
   .\install.ps1 -TeamDir \\pc\share\usage -DeviceName alice-pc   # share this device's usage totals (numbers only), exported every 15 min
   .\install.ps1 -WorkspaceRoots C:\code # folders token-savior may index (default: your user folder)
 
@@ -19,6 +20,7 @@ param(
   [switch]$DryRun,
   [switch]$Yes,
   [switch]$DefaultAgent,
+  [switch]$StatusLine,
   [string]$TeamDir = '',
   [string]$DeviceName = '',
   [string[]]$Skip = @(),
@@ -78,6 +80,7 @@ This will:
   - $(if (Want 'graphify') { "pip-install graphify into $Venv and register its /graphify skill (adds 3 lines to ~\.claude\CLAUDE.md)" } else { '(skip graphify)' })
   - $(if (Want 'cave')   { 'install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)' } else { '(skip caveman)' })
   - $(if (Want 'agents') { "copy 4 agents to $Agents and token-report to $Bin" } else { '(skip agents)' })
+$(if ($StatusLine) { '  - set statusLine in ~\.claude\settings.json to show the conversation size (skipped if you already have one)' })
 $(if ($TeamDir) { "  - export this device's per-day token totals (numbers and device name only) to $TeamDir every 15 minutes via a scheduled task" })
 These are third-party tools that add hooks to every Claude Code session. Read the README first.
 "@
@@ -180,6 +183,9 @@ if (Want 'agents') {
   foreach ($f in Get-ChildItem "$Here\agents\*.md") { Run { Copy-Item $f.FullName $Agents -Force } "copy $($f.Name) -> $Agents" }
   Run { Copy-Item "$Here\bin\token-report" (Join-Path $Bin 'token-report.py') -Force } "copy token-report.py -> $Bin"
   Run { Copy-Item "$Here\bin\token_data.py" (Join-Path $Bin 'token_data.py') -Force } "copy token_data.py -> $Bin"
+  Run { Copy-Item "$Here\bin\token-statusline" (Join-Path $Bin 'token-statusline.py') -Force } "copy token-statusline.py -> $Bin"
+  Run { New-Item -ItemType Directory -Force -Path "$Home_\.claude\commands" | Out-Null } 'mkdir commands'
+  foreach ($f in Get-ChildItem "$Here\commands\*.md") { Run { Copy-Item $f.FullName "$Home_\.claude\commands" -Force } "copy $($f.Name) -> commands" }
   Run { Copy-Item "$Here\bin\token-dashboard" (Join-Path $Bin 'token-dashboard.py') -Force } "copy token-dashboard.py -> $Bin"
   $pyCmd = if ($Py) { $Py } else { 'python' }
   Run { Set-Content -Path (Join-Path $Bin 'token-dashboard.cmd') -Value "@echo off`r`n$pyCmd `"%~dp0token-dashboard.py`" %*" -Encoding ASCII } 'write token-dashboard.cmd'
@@ -197,17 +203,29 @@ if ($TeamDir) {
   Run { schtasks /Create /F /SC MINUTE /MO 15 /TN 'multi-subagents token export' /TR $tr | Out-Null } 'schtasks create: export every 15 minutes'
 }
 
+# Add a top-level key to ~\.claude\settings.json only if it is missing (text insert keeps your formatting).
+function Set-SettingIfMissing([string]$Key, [string]$JsonValue, [string]$Label) {
+  $sp = Join-Path $Home_ '.claude\settings.json'
+  if ($DryRun) { Write-Host "   [dry-run] set $Key in settings.json"; return }
+  $entry = "`"$Key`": $JsonValue"
+  if (-not (Test-Path $sp)) { Set-Content $sp "{`n  $entry`n}`n" -Encoding UTF8; Write-Host "   $Label set"; return }
+  $txt = Get-Content $sp -Raw
+  if ($txt -match ('"' + [regex]::Escape($Key) + '"\s*:')) { Write-Host "   settings.json already has $Key - left unchanged"; return }
+  if ($txt -match '^\s*\{\s*\}\s*$') { Set-Content $sp "{`n  $entry`n}`n" -Encoding UTF8 }
+  else { Set-Content $sp ([regex]::Replace($txt, '^\s*\{', { param($m) "{`n  $entry," }, 1)) -Encoding UTF8 }
+  Write-Host "   $Label set"
+}
+
+if ($StatusLine) {
+  Say 'Status line'
+  $pyCmd2 = if ($Py) { $Py } else { 'python' }
+  $cmdText = ($pyCmd2 + ' "' + (Join-Path $Bin 'token-statusline.py') + '"') -replace '\\', '/'
+  Set-SettingIfMissing 'statusLine' ('{ "type": "command", "command": "' + ($cmdText -replace '"', '\"') + '" }') 'status line'
+}
+
 if ($DefaultAgent) {
   Say 'Default agent'
-  $sp = Join-Path $Home_ '.claude\settings.json'
-  if ($DryRun) { Write-Host '   [dry-run] set "agent": "lean-main" in settings.json' }
-  elseif (-not (Test-Path $sp)) { Set-Content $sp "{`n  `"agent`": `"lean-main`"`n}`n" -Encoding UTF8; Write-Host '   default agent set to lean-main' }
-  else {
-    $txt = Get-Content $sp -Raw
-    if ($txt -match '"agent"\s*:') { Write-Host '   settings.json already has an agent setting - left unchanged' }
-    elseif ($txt -match '^\s*\{\s*\}\s*$') { Set-Content $sp "{`n  `"agent`": `"lean-main`"`n}`n" -Encoding UTF8; Write-Host '   default agent set to lean-main' }
-    else { $new = [regex]::Replace($txt, '^\s*\{', "{`n  `"agent`": `"lean-main`",", 1); Set-Content $sp $new -Encoding UTF8; Write-Host '   default agent set to lean-main' }
-  }
+  Set-SettingIfMissing 'agent' '"lean-main"' 'default agent'
 }
 
 Say 'Done'

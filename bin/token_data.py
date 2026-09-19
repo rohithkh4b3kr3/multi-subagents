@@ -158,14 +158,14 @@ def scan(root=None):
         rel = os.path.relpath(f, root).split(os.sep)
         proj = p["project"] or (rel[0].strip("-").split("-")[-1] if rel else "?")
         s = {"id": os.path.basename(f)[:8], "p": proj, "start": p["first"], "end": p["last"],
-             "req": 0, "cr": 0, "cw": 0, "out": 0, "sub": len(rel) > 2}
+             "req": 0, "in": 0, "cr": 0, "cw": 0, "out": 0, "sub": len(rel) > 2}
         for rid, (ts, i, cw, cr, out) in p["reqs"].items():
             if rid in seen_req:
                 continue
             seen_req.add(rid)
             b = bucket(ts, proj)
             b["req"] += 1; b["in"] += i; b["cw"] += cw; b["cr"] += cr; b["out"] += out
-            s["req"] += 1; s["cw"] += cw; s["cr"] += cr; s["out"] += out
+            s["req"] += 1; s["in"] += i; s["cw"] += cw; s["cr"] += cr; s["out"] += out
         for tid, (ts, name, chars) in p["tools"].items():
             if tid in seen_tool:
                 continue

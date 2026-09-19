@@ -7,6 +7,7 @@
 #   ./install.sh -y              no confirmation prompt
 #   ./install.sh --skip rtk,ctx  skip components: rtk | crg | ts | ctx | cave | graphify | agents
 #   ./install.sh --default-agent make lean-main your default agent in ~/.claude/settings.json
+#   ./install.sh --statusline    show conversation size in Claude Code's status line (colour-coded)
 #   ./install.sh --team-dir DIR [--device-name NAME]   share this device's usage totals (numbers only)
 #                                with the people on your Claude account via folder DIR; exports every 15 min
 #   WORKSPACE_ROOTS=~/code ./install.sh   folders token-savior may index (default: $HOME)
@@ -14,12 +15,13 @@
 # Safe to re-run. Backs up ~/.claude/settings.json and ~/.claude.json first.
 set -euo pipefail
 
-DRY=0; YES=0; DEFAULT_AGENT=0; TEAM_DIR=""; DEVICE_NAME=""; SKIP=","
+DRY=0; YES=0; DEFAULT_AGENT=0; STATUSLINE=0; TEAM_DIR=""; DEVICE_NAME=""; SKIP=","
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     -y|--yes) YES=1 ;;
     --default-agent) DEFAULT_AGENT=1 ;;
+    --statusline) STATUSLINE=1 ;;
     --team-dir) TEAM_DIR="$2"; shift ;;
     --device-name) DEVICE_NAME="$2"; shift ;;
     --skip) SKIP=",$2,"; shift ;;
@@ -60,6 +62,7 @@ This will:
   - $(want graphify && echo "pip-install graphify into $VENV and register its /graphify skill (adds 3 lines to ~/.claude/CLAUDE.md)" || echo "(skip graphify)")
   - $(want cave   && echo "install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)" || echo "(skip caveman)")
   - $(want agents && echo "copy 4 agents to ~/.claude/agents and token-report to ~/.local/bin" || echo "(skip agents)")
+$([ "$STATUSLINE" = 1 ] && echo "  - set statusLine in ~/.claude/settings.json to show the conversation size (skipped if you already have one)")
 $([ -n "$TEAM_DIR" ] && echo "  - export this device's per-day token totals (numbers + device name only) to $TEAM_DIR every 15 min via a user cron job")
 $([ "$DEFAULT_AGENT" = 1 ] && echo "  - set \"agent\": \"lean-main\" in ~/.claude/settings.json (every session runs as lean-main)")
 These are third-party tools that add hooks to every Claude Code session. Read the README first.
@@ -136,6 +139,9 @@ if want agents; then
   for f in "$HERE"/agents/*.md; do run cp "$f" "$HOME/.claude/agents/"; done
   run install -m 0755 "$HERE/bin/token-report" "$HOME/.local/bin/token-report"
   run install -m 0644 "$HERE/bin/token_data.py" "$HOME/.local/bin/token_data.py"
+  run install -m 0755 "$HERE/bin/token-statusline" "$HOME/.local/bin/token-statusline"
+  run mkdir -p "$HOME/.claude/commands"
+  for f in "$HERE"/commands/*.md; do run cp "$f" "$HOME/.claude/commands/"; done
   run install -m 0755 "$HERE/bin/token-dashboard" "$HOME/.local/bin/token-dashboard"
   # Desktop launcher (Linux): appears in the app menu as "Token stack"
   if [ "$(uname -s)" = Linux ]; then
@@ -170,6 +176,24 @@ else:
     os.makedirs(os.path.dirname(p), exist_ok=True)
     json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
     print("   default agent set to lean-main")
+PY
+  fi
+fi
+
+if [ "$STATUSLINE" = 1 ]; then
+  say "Status line"
+  if [ "$DRY" = 1 ]; then echo "   [dry-run] set statusLine=token-statusline in ~/.claude/settings.json"; else
+    python3 - <<'PY'
+import json, os
+p = os.path.expanduser("~/.claude/settings.json")
+d = json.load(open(p)) if os.path.exists(p) else {}
+if d.get("statusLine"):
+    print("   settings.json already has a statusLine - left unchanged")
+else:
+    d["statusLine"] = {"type": "command", "command": os.path.expanduser("~/.local/bin/token-statusline")}
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
+    print("   status line set")
 PY
   fi
 fi

@@ -135,6 +135,20 @@ What it shows, for Today / 7 days / 30 days / All, and per project:
 
 It is a small local web page served from the Python standard library, bound to `127.0.0.1` only (other hosts are rejected), read-only, with no external requests, no accounts and no dependencies to install. Command *names* are shown, never arguments or your prompts. `token-dashboard --no-open` just prints the URL; `--browser` uses a normal browser tab.
 
+## The history problem (the biggest cost)
+
+Claude does not "look up" old messages; the API is stateless, so **every request re-sends the entire conversation**. A conversation that has grown to 150K tokens costs about 150K tokens of input on *every* new message, however small the message is. In the author's own data that re-read was about **97% of all input tokens**, and one long session grew from 32K to almost 300K tokens per request. Re-read tokens are billed at a fraction of normal input (cache reads are cheap per token), which is why this is not 97% of the *bill*, but the volume is what fills usage limits and slows things down, and a cold cache makes it worse.
+
+You cannot remove history, only stop it growing. What actually helps, most effective first:
+
+1. **Split work at task boundaries.** In the author's data, restarting every ~25 requests would have cut input processed by roughly half (an upper bound: it assumes the work is separable).
+2. **Carry state, not history.** `/handoff` writes a short note (goal, decisions, state, next steps) to `~/.claude/handoffs/<project>.md`; then `/clear` and start with `read ~/.claude/handoffs/<project>.md and continue`. You keep your place at a fraction of the size.
+3. **See it as it grows.** The optional status line shows the current conversation size, colour-coded (green under 100K, yellow to 200K, red above), so you know when to hand off.
+4. **Keep bulky things out of the history.** That is what rtk, context-mode and the read-only subagents are for: a 20K test log or a 10-file exploration never enters the main conversation.
+5. **Do not resume very old giant sessions.** Resuming reloads the whole history, and if the cache has expired it is written again at a higher price.
+
+Turn on the status line with `./install.sh --statusline` (`-StatusLine` on Windows). It is off by default because it changes your UI, and it never replaces a status line you already have. `/handoff` is installed with the agents. The dashboard's **Biggest sessions** table shows each session's average context per request and flags the large ones.
+
 ## Shared account: who is using how much
 
 If several people use one Claude account, each device only knows its own usage, and Claude gives no per-person breakdown. So each device exports a small summary to a **shared folder**, and the dashboard merges them into a **"Who is using how much"** table: per device, requests, new context, output and re-read, a share bar, and when each device last reported (stale ones are flagged).
@@ -220,6 +234,8 @@ agents/lean-explorer.md   read-only exploration agent (haiku)
 agents/lean-reviewer.md   read-only review agent (sonnet)
 bin/token-dashboard       desktop window with usage charts and stack status
 bin/token_data.py         shared transcript reader (used by both tools)
+bin/token-statusline      optional status line: current conversation size
+commands/handoff.md       /handoff command: save state, then /clear
 bin/token-report          usage report in the terminal; --export / --team for shared accounts
 assets/token-dashboard.svg  app icon
 install.sh / uninstall.sh        Linux, macOS, WSL

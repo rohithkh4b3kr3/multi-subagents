@@ -330,7 +330,7 @@ footer { color: var(--ink-3); font-size: 12px; margin-top: 16px; }
     <div class="wrap" id="usage"></div></section>
 
   <section class="card"><h2>Biggest sessions</h2>
-    <p class="hint">Every new request re-sends the whole conversation, so long sessions cost the most.</p>
+    <p class="hint">Every new request re-sends the whole conversation. “Avg context” is roughly what each request in that session re-read.</p>
     <div class="wrap" id="sessions"></div></section>
 
   <footer>Read from Claude Code's local transcripts (<code>~/.claude/projects</code>). Usage is counted once per API request. Tool-output tokens are estimates. Nothing leaves this machine.</footer>
@@ -626,11 +626,12 @@ function renderSessions() {
   const el = $("#sessions"); el.replaceChildren();
   if (!ss.length) { el.append(h("div", { class: "empty" }, "No sessions in this range.")); return; }
   const t = h("table", null, h("thead", null, h("tr", null, h("th", null, "Ended"), h("th", null, "Project"),
-    ...["Requests", "Re-read", "New context", "Output"].map(x => h("th", { class: "num" }, x)), h("th", null, "Note"))), h("tbody"));
+    ...["Requests", "Avg context", "Re-read", "New context", "Output"].map(x => h("th", { class: "num" }, x)), h("th", null, "Note"))), h("tbody"));
   for (const s of ss) {
+    const avg = s.req ? (s.cr + s.cw + (s["in"] || 0)) / s.req : 0;
     t.tBodies[0].append(h("tr", null, h("td", null, s.endDate), h("td", null, s.p + (s.sub ? " (subagent)" : "")),
-      h("td", { class: "num" }, comma(s.req)), h("td", { class: "num" }, compact(s.cr)), h("td", { class: "num" }, compact(s.cw)), h("td", { class: "num" }, compact(s.out)),
-      h("td", null, s.req >= 60 ? statusCell("warn", "Long: /clear would help") : "")));
+      h("td", { class: "num" }, comma(s.req)), h("td", { class: "num" }, compact(avg)), h("td", { class: "num" }, compact(s.cr)), h("td", { class: "num" }, compact(s.cw)), h("td", { class: "num" }, compact(s.out)),
+      h("td", null, avg >= 100000 ? statusCell("warn", "Large: /handoff + /clear") : "")));
   }
   el.append(t);
 }

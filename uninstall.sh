@@ -17,12 +17,17 @@ import json, os
 p = os.path.expanduser("~/.claude/settings.json")
 if os.path.exists(p):
     d = json.load(open(p))
+    changed = False
     if d.get("agent") == "lean-main":
-        del d["agent"]; json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n"); print("removed default agent setting")
+        del d["agent"]; changed = True; print("removed default agent setting")
+    if "token-statusline" in json.dumps(d.get("statusLine", "")):
+        del d["statusLine"]; changed = True; print("removed status line setting")
+    if changed:
+        json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
 PY
 rm -f "$HOME/.claude/agents/lean-main.md" "$HOME/.claude/agents/lean-coder.md" "$HOME/.claude/agents/lean-explorer.md" \
       "$HOME/.claude/agents/lean-reviewer.md" "$HOME/.local/bin/token-report" \
-      "$HOME/.local/bin/token_data.py" "$HOME/.local/bin/token-dashboard" \
+      "$HOME/.local/bin/token_data.py" "$HOME/.local/bin/token-dashboard" "$HOME/.local/bin/token-statusline" "$HOME/.claude/commands/handoff.md" \
       "$HOME/.local/share/applications/token-dashboard.desktop" "$HOME/.local/share/icons/token-dashboard.svg"
 rm -rf "$HOME/.cache/token-dashboard"
 command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -q "# multi-subagents" && { crontab -l | grep -v "# multi-subagents" | crontab -; echo "removed cron job"; }
