@@ -70,7 +70,7 @@ if (-not $Py -and ((Want 'crg') -or (Want 'ts'))) {
   Write-Warning 'need Python 3.11+ on PATH (https://www.python.org/downloads/ - tick "Add python.exe to PATH"), or use -Skip crg,ts'; $missing = $true
 }
 if ((Want 'ctx') -and -not (Have 'node')) { Write-Warning 'context-mode needs Node.js (https://nodejs.org), or use -Skip ctx'; $missing = $true }
-if ($missing) { exit 1 }
+if ($missing) { if ($DryRun) { Write-Warning '(dry run: continuing despite the missing prerequisites above)' } else { exit 1 } }
 
 Write-Host @"
 This will:

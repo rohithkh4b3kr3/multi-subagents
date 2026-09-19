@@ -1,0 +1,12 @@
+multi-subagents
+Copyright 2026 rohithkh4b3kr3
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This project is not affiliated with, endorsed by, or sponsored by Anthropic.
+"Claude" and "Claude Code" are trademarks of Anthropic, PBC. They are used here
+only to describe what this software works with.
+
+The tools that the installers download (rtk, code-review-graph, token-savior,
+context-mode, caveman, graphify) are separate projects under their own licenses;
+none of their code is included in this repository. See THIRD_PARTY.md.

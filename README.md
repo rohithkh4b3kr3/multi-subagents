@@ -1,6 +1,10 @@
 # multi-subagents
 
+[![CI](https://github.com/rohithkh4b3kr3/multi-subagents/actions/workflows/ci.yml/badge.svg)](https://github.com/rohithkh4b3kr3/multi-subagents/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 A one-command setup that makes [Claude Code](https://docs.claude.com/en/docs/claude-code) read less, so sessions last longer and cost less, without changing the quality of the code or answers.
+
+> **Status:** early, open source (Apache-2.0), **not affiliated with Anthropic**. Developed and tested on Ubuntu. CI runs the unit tests and dry-runs both installers on Linux, macOS and Windows; real-machine reports from macOS and Windows are welcome.
 
 It combines six open-source token-saving tools, gives each **one job** so they don't fight each other, and adds four role-based agents (one of them can be your default agent) that know which tool to use for what.
 
@@ -88,7 +92,7 @@ If PowerShell blocks the script: `powershell -ExecutionPolicy Bypass -File .\ins
 
 What is different on Windows: rtk is downloaded from its GitHub release (SHA-256 verified) into `%USERPROFILE%\.local\bin`, and that folder is added to your **user PATH**; the Python tools go in a venv under `%USERPROFILE%\.local\share\multi-subagents`; `token-report` is installed as `token-report.cmd`. **Open a new terminal afterwards** so the PATH change takes effect, then restart Claude Code. Remove everything with `.\uninstall.ps1`.
 
-> **Status:** the PowerShell scripts were written and reviewed but **have not been run on a real Windows machine yet**. Run `-DryRun` first, and please open an issue if anything breaks. rtk's own docs list Windows as supported, but if its hook misbehaves for you, skip it with `-Skip rtk` and use the rest.
+> **Status:** the PowerShell scripts are dry-run by CI on Windows PowerShell 5.1 and 7 on every push, but a real install on a Windows machine has not been reported yet. Run `-DryRun` first, and please open an issue if anything breaks. rtk's own docs list Windows as supported, but if its hook misbehaves for you, skip it with `-Skip rtk` and use the rest.
 
 ### Check it worked
 
@@ -174,6 +178,8 @@ Indexing is low risk: it is local, uses no tokens and calls no model. Auto-recal
 Control it with `token-history auto on | index | off` (`index` keeps indexing but never injects), and remove the hooks with `token-history hooks remove` or `./uninstall.sh` (which also deletes the index).
 
 ## Shared account: who is using how much
+
+> **Check your plan's terms first.** Personal Claude plans are generally meant for one person; sharing one login among several people may not be allowed. Team and Enterprise plans give every person their own seat and their own usage analytics. This feature is meant for people who legitimately share spend, for example several devices of one person, or seats you administer. You are responsible for complying with your plan's terms.
 
 If several people use one Claude account, each device only knows its own usage, and Claude gives no per-person breakdown. So each device exports a small summary to a **shared folder**, and the dashboard merges them into a **"Who is using how much"** table: per device, requests, new context, output and re-read, a share bar, and when each device last reported (stale ones are flagged).
 
@@ -267,6 +273,12 @@ assets/token-dashboard.svg  app icon
 install.sh / uninstall.sh        Linux, macOS, WSL
 install.ps1 / uninstall.ps1      native Windows (PowerShell)
 ```
+
+## Contributing, security, license
+
+- **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). Run `python3 -m unittest discover -s tests -v` before a PR.
+- **Security:** see [SECURITY.md](SECURITY.md) for how to report a problem and what this software does on your machine.
+- **License:** [Apache-2.0](LICENSE). The tools the installers download are separate projects under their own licenses, two of which restrict hosted or managed use; see [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Credits
 

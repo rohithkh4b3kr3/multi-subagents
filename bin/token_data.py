@@ -63,7 +63,9 @@ def _parse_file(path):
     """One transcript -> small dict of requests/tools/etc., keyed by ids for later dedupe."""
     reqs, tools, bash, mcp, agents, skills = {}, {}, {}, {}, {}, {}
     first = last = cwd = None
-    for line in open(path, encoding="utf-8", errors="ignore"):
+    with open(path, encoding="utf-8", errors="ignore") as fh:
+        lines = fh.readlines()
+    for line in lines:
         try:
             r = json.loads(line)
         except ValueError:

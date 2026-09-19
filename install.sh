@@ -52,7 +52,9 @@ need curl    "sudo apt install curl"
 python3 -c 'import venv, sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null \
   || { echo "need python3 >= 3.11 with the venv module (Ubuntu: sudo apt install python3-venv)" >&2; MISSING=1; }
 want ctx && need node "context-mode needs Node.js (sudo apt install nodejs), or run with --skip ctx"
-[ "$MISSING" = 0 ] || exit 1
+if [ "$MISSING" != 0 ]; then
+  if [ "$DRY" = 1 ]; then echo "(dry run: continuing despite the missing prerequisites above)"; else exit 1; fi
+fi
 
 cat <<EOF
 This will:
