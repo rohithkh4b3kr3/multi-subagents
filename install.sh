@@ -5,17 +5,19 @@
 #   ./install.sh                 install everything (asks once before changing anything)
 #   ./install.sh --dry-run       print what would happen, change nothing
 #   ./install.sh -y              no confirmation prompt
-#   ./install.sh --skip rtk,ctx  skip components: rtk | crg | ts | ctx | cave | agents
+#   ./install.sh --skip rtk,ctx  skip components: rtk | crg | ts | ctx | cave | graphify | agents
+#   ./install.sh --default-agent make lean-main your default agent in ~/.claude/settings.json
 #   WORKSPACE_ROOTS=~/code ./install.sh   folders token-savior may index (default: $HOME)
 #
 # Safe to re-run. Backs up ~/.claude/settings.json and ~/.claude.json first.
 set -euo pipefail
 
-DRY=0; YES=0; SKIP=","
+DRY=0; YES=0; DEFAULT_AGENT=0; SKIP=","
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     -y|--yes) YES=1 ;;
+    --default-agent) DEFAULT_AGENT=1 ;;
     --skip) SKIP=",$2,"; shift ;;
     -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -51,8 +53,10 @@ This will:
   - $(want crg    && echo "pip-install code-review-graph into $VENV and register it as a user MCP server" || echo "(skip code-review-graph)")
   - $(want ts     && echo "pip-install token-savior into $VENV and register it (Bash rewriter OFF, roots: $ROOTS)" || echo "(skip token-savior)")
   - $(want ctx    && echo "install the context-mode Claude Code plugin (adds hooks)" || echo "(skip context-mode)")
+  - $(want graphify && echo "pip-install graphify into $VENV and register its /graphify skill (adds 3 lines to ~/.claude/CLAUDE.md)" || echo "(skip graphify)")
   - $(want cave   && echo "install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)" || echo "(skip caveman)")
-  - $(want agents && echo "copy 3 agents to ~/.claude/agents and token-report to ~/.local/bin" || echo "(skip agents)")
+  - $(want agents && echo "copy 4 agents to ~/.claude/agents and token-report to ~/.local/bin" || echo "(skip agents)")
+$([ "$DEFAULT_AGENT" = 1 ] && echo "  - set \"agent\": \"lean-main\" in ~/.claude/settings.json (every session runs as lean-main)")
 These are third-party tools that add hooks to every Claude Code session. Read the README first.
 EOF
 if [ "$DRY" = 0 ] && [ "$YES" = 0 ]; then
@@ -76,13 +80,14 @@ if want rtk; then
 fi
 
 # ---- python MCP servers --------------------------------------------------
-if want crg || want ts; then
+if want crg || want ts || want graphify; then
   say "Python venv ($VENV)"
   run mkdir -p "$STACK"
   run python3 -m venv "$VENV"
   pkgs=()
   want crg && pkgs+=("code-review-graph")
   want ts  && pkgs+=("token-savior-recall[mcp]")
+  want graphify && pkgs+=("graphifyy")
   run "$VENV/bin/pip" install -q --disable-pip-version-check "${pkgs[@]}"
 fi
 if want crg; then
@@ -97,6 +102,12 @@ if want ts; then
   run claude mcp add -s user token-savior \
     -e TOKEN_SAVIOR_CLIENT=claude-code -e TOKEN_SAVIOR_PROFILE=optimized \
     -e "WORKSPACE_ROOTS=$ROOTS" -- "$VENV/bin/token-savior"
+fi
+
+# ---- graphify (knowledge graph of code + docs, as a /graphify skill) -------
+if want graphify; then
+  say "graphify (whole-project and docs map; local, no API key)"
+  run "$VENV/bin/graphify" install
 fi
 
 # ---- context-mode plugin -------------------------------------------------
@@ -119,6 +130,24 @@ if want agents; then
   run mkdir -p "$HOME/.claude/agents" "$HOME/.local/bin"
   for f in "$HERE"/agents/*.md; do run cp "$f" "$HOME/.claude/agents/"; done
   run install -m 0755 "$HERE/bin/token-report" "$HOME/.local/bin/token-report"
+fi
+
+if [ "$DEFAULT_AGENT" = 1 ]; then
+  say "Default agent"
+  if [ "$DRY" = 1 ]; then echo "   [dry-run] set agent=lean-main in ~/.claude/settings.json"; else
+    python3 - <<'PY'
+import json, os
+p = os.path.expanduser("~/.claude/settings.json")
+d = json.load(open(p)) if os.path.exists(p) else {}
+if d.get("agent") and d["agent"] != "lean-main":
+    print("   settings.json already has agent =", d["agent"], "- left unchanged")
+else:
+    d["agent"] = "lean-main"
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
+    print("   default agent set to lean-main")
+PY
+  fi
 fi
 
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to your PATH" ;; esac

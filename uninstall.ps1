@@ -14,7 +14,13 @@ if (Get-Command rtk -ErrorAction SilentlyContinue) { & rtk init -g --uninstall }
 & claude plugin marketplace remove caveman 2>&1 | Out-Null
 & claude mcp remove -s user code-review-graph 2>&1 | Out-Null
 & claude mcp remove -s user token-savior 2>&1 | Out-Null
-foreach ($f in 'lean-coder.md', 'lean-explorer.md', 'lean-reviewer.md') { Remove-Item "$Home_\.claude\agents\$f" -ErrorAction SilentlyContinue }
+& "$Home_\.local\share\multi-subagents\venv\Scripts\graphify.exe" uninstall 2>&1 | Out-Null
+$sp = "$Home_\.claude\settings.json"
+if ((Test-Path $sp) -and ((Get-Content $sp -Raw) -match '"agent"\s*:\s*"lean-main"')) {
+  $c = (Get-Content $sp -Raw) -replace '\s*"agent"\s*:\s*"lean-main"\s*,?', ''
+  Set-Content $sp $c -Encoding UTF8; Write-Host 'removed default agent setting (check settings.json is still valid JSON)'
+}
+foreach ($f in 'lean-main.md', 'lean-coder.md', 'lean-explorer.md', 'lean-reviewer.md') { Remove-Item "$Home_\.claude\agents\$f" -ErrorAction SilentlyContinue }
 Remove-Item "$Bin\token-report.py", "$Bin\token-report.cmd" -ErrorAction SilentlyContinue
 Remove-Item "$Home_\.local\share\multi-subagents" -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Removed. rtk.exe and the PATH entry ($Bin) are left in place; delete them yourself if you want."

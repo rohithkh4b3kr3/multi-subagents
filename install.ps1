@@ -7,7 +7,8 @@
 .EXAMPLE
   .\install.ps1 -DryRun                 # print what would happen, change nothing
   .\install.ps1                         # asks once, then installs
-  .\install.ps1 -Yes -Skip rtk,ctx      # no prompt; skip components: rtk | crg | ts | ctx | cave | agents
+  .\install.ps1 -Yes -Skip rtk,ctx      # no prompt; skip components: rtk | crg | ts | ctx | cave | graphify | agents
+  .\install.ps1 -DefaultAgent           # make lean-main your default agent in ~\.claude\settings.json
   .\install.ps1 -WorkspaceRoots C:\code # folders token-savior may index (default: your user folder)
 
   If scripts are blocked:  powershell -ExecutionPolicy Bypass -File .\install.ps1
@@ -16,6 +17,7 @@
 param(
   [switch]$DryRun,
   [switch]$Yes,
+  [switch]$DefaultAgent,
   [string[]]$Skip = @(),
   [string]$WorkspaceRoots = $env:USERPROFILE
 )
@@ -70,8 +72,9 @@ This will:
   - $(if (Want 'crg')    { "pip-install code-review-graph into $Venv and register it as a user MCP server" } else { '(skip code-review-graph)' })
   - $(if (Want 'ts')     { "pip-install token-savior into $Venv and register it (Bash rewriter OFF, roots: $WorkspaceRoots)" } else { '(skip token-savior)' })
   - $(if (Want 'ctx')    { 'install the context-mode Claude Code plugin (adds hooks)' } else { '(skip context-mode)' })
+  - $(if (Want 'graphify') { "pip-install graphify into $Venv and register its /graphify skill (adds 3 lines to ~\.claude\CLAUDE.md)" } else { '(skip graphify)' })
   - $(if (Want 'cave')   { 'install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)' } else { '(skip caveman)' })
-  - $(if (Want 'agents') { "copy 3 agents to $Agents and token-report to $Bin" } else { '(skip agents)' })
+  - $(if (Want 'agents') { "copy 4 agents to $Agents and token-report to $Bin" } else { '(skip agents)' })
 These are third-party tools that add hooks to every Claude Code session. Read the README first.
 "@
 if (-not $DryRun -and -not $Yes) {
@@ -124,13 +127,14 @@ if (Want 'rtk') {
 }
 
 # ---- python MCP servers --------------------------------------------------
-if ((Want 'crg') -or (Want 'ts')) {
+if ((Want 'crg') -or (Want 'ts') -or (Want 'graphify')) {
   Say "Python venv ($Venv)"
   Run { New-Item -ItemType Directory -Force -Path $Stack | Out-Null } "mkdir $Stack"
   Run { & $Py -m venv $Venv } "$Py -m venv $Venv"
   $pkgs = @()
   if (Want 'crg') { $pkgs += 'code-review-graph' }
   if (Want 'ts')  { $pkgs += 'token-savior-recall[mcp]' }
+  if (Want 'graphify') { $pkgs += 'graphifyy' }
   Run { & "$Venv\Scripts\python.exe" -m pip install -q --disable-pip-version-check @pkgs } "pip install $($pkgs -join ' ')"
 }
 if (Want 'crg') {
@@ -143,6 +147,12 @@ if (Want 'ts') {
   if (-not $DryRun) { Quiet { claude mcp remove -s user token-savior } }
   # TS_BASH_COMPACT / TS_BASH_REWRITE are deliberately NOT set: rtk owns Bash.
   Run { & claude mcp add -s user token-savior -e TOKEN_SAVIOR_CLIENT=claude-code -e TOKEN_SAVIOR_PROFILE=optimized -e "WORKSPACE_ROOTS=$WorkspaceRoots" -- "$Venv\Scripts\token-savior.exe" } 'claude mcp add token-savior'
+}
+
+# ---- graphify (knowledge graph of code + docs, as a /graphify skill) -------
+if (Want 'graphify') {
+  Say 'graphify (whole-project and docs map; local, no API key)'
+  Run { & "$Venv\Scripts\graphify.exe" install } 'graphify install'
 }
 
 # ---- context-mode plugin -------------------------------------------------
@@ -167,6 +177,19 @@ if (Want 'agents') {
   Run { Copy-Item "$Here\bin\token-report" (Join-Path $Bin 'token-report.py') -Force } "copy token-report.py -> $Bin"
   $pyCmd = if ($Py) { $Py } else { 'python' }
   Run { Set-Content -Path (Join-Path $Bin 'token-report.cmd') -Value "@echo off`r`n$pyCmd `"%~dp0token-report.py`" %*" -Encoding ASCII } 'write token-report.cmd'
+}
+
+if ($DefaultAgent) {
+  Say 'Default agent'
+  $sp = Join-Path $Home_ '.claude\settings.json'
+  if ($DryRun) { Write-Host '   [dry-run] set "agent": "lean-main" in settings.json' }
+  elseif (-not (Test-Path $sp)) { Set-Content $sp "{`n  `"agent`": `"lean-main`"`n}`n" -Encoding UTF8; Write-Host '   default agent set to lean-main' }
+  else {
+    $txt = Get-Content $sp -Raw
+    if ($txt -match '"agent"\s*:') { Write-Host '   settings.json already has an agent setting - left unchanged' }
+    elseif ($txt -match '^\s*\{\s*\}\s*$') { Set-Content $sp "{`n  `"agent`": `"lean-main`"`n}`n" -Encoding UTF8; Write-Host '   default agent set to lean-main' }
+    else { $new = [regex]::Replace($txt, '^\s*\{', "{`n  `"agent`": `"lean-main`",", 1); Set-Content $sp $new -Encoding UTF8; Write-Host '   default agent set to lean-main' }
+  }
 }
 
 Say 'Done'
