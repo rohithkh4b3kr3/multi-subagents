@@ -5,7 +5,7 @@
 #   ./install.sh                 install everything (asks once before changing anything)
 #   ./install.sh --dry-run       print what would happen, change nothing
 #   ./install.sh -y              no confirmation prompt
-#   ./install.sh --skip rtk,ctx  skip components: rtk | crg | ts | ctx | agents
+#   ./install.sh --skip rtk,ctx  skip components: rtk | crg | ts | ctx | cave | agents
 #   WORKSPACE_ROOTS=~/code ./install.sh   folders token-savior may index (default: $HOME)
 #
 # Safe to re-run. Backs up ~/.claude/settings.json and ~/.claude.json first.
@@ -51,6 +51,7 @@ This will:
   - $(want crg    && echo "pip-install code-review-graph into $VENV and register it as a user MCP server" || echo "(skip code-review-graph)")
   - $(want ts     && echo "pip-install token-savior into $VENV and register it (Bash rewriter OFF, roots: $ROOTS)" || echo "(skip token-savior)")
   - $(want ctx    && echo "install the context-mode Claude Code plugin (adds hooks)" || echo "(skip context-mode)")
+  - $(want cave   && echo "install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)" || echo "(skip caveman)")
   - $(want agents && echo "copy 3 agents to ~/.claude/agents and token-report to ~/.local/bin" || echo "(skip agents)")
 These are third-party tools that add hooks to every Claude Code session. Read the README first.
 EOF
@@ -103,6 +104,13 @@ if want ctx; then
   say "context-mode (sandbox for big output, indexed search, session memory)"
   run claude plugin marketplace add mksglu/context-mode || echo "   (marketplace already added?)"
   run claude plugin install context-mode@context-mode
+fi
+
+# ---- caveman plugin ------------------------------------------------------
+if want cave; then
+  say "caveman (terse replies: fewer output tokens)"
+  run claude plugin marketplace add JuliusBrussee/caveman || echo "   (marketplace already added?)"
+  run claude plugin install caveman@caveman
 fi
 
 # ---- agents + report script ---------------------------------------------

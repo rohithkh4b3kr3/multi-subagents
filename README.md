@@ -2,7 +2,7 @@
 
 A one-command setup that makes [Claude Code](https://docs.claude.com/en/docs/claude-code) read less, so sessions last longer and cost less, without changing the quality of the code or answers.
 
-It combines four open-source token-saving tools, gives each **one job** so they don't fight each other, and adds three role-based subagents that know which tool to use for what.
+It combines five open-source token-saving tools, gives each **one job** so they don't fight each other, and adds three role-based subagents that know which tool to use for what.
 
 | Tool | Its one job here | Where it acts |
 |---|---|---|
@@ -10,6 +10,7 @@ It combines four open-source token-saving tools, gives each **one job** so they 
 | [code-review-graph](https://github.com/tirth8205/code-review-graph) | Code graph: callers, callees, tests, blast radius of a change | MCP server |
 | [token-savior](https://github.com/mibayy/token-savior) | Read or edit one symbol instead of a whole file; project memory | MCP server |
 | [context-mode](https://github.com/mksglu/context-mode) | Keep big outputs (logs, pages) in a sandbox and search them; survive context compaction | Claude Code plugin |
+| [caveman](https://github.com/JuliusBrussee/caveman) | Make Claude's *replies* shorter (terse prose; code, commands and error text stay exact) | Claude Code plugin (session hooks) |
 
 ## Why this exists
 
@@ -19,6 +20,7 @@ Installing all four naively causes trouble, because three of them want to interc
 
 - **rtk is the only Bash rewriter.** token-savior's own Bash rewriter and compactors are left **off**.
 - context-mode only routes *large* output to its sandbox (it nudges, it does not rewrite commands).
+- caveman only touches the *reply style*; it never touches tool input or output, so it can't clash with the others.
 - code-review-graph answers structure questions; token-savior answers "show me this symbol".
 
 ### The agents
@@ -54,7 +56,7 @@ Options:
 
 ```bash
 ./install.sh -y                       # no confirmation prompt
-./install.sh --skip rtk,ctx           # skip components: rtk | crg | ts | ctx | agents
+./install.sh --skip rtk,ctx           # skip components: rtk | crg | ts | ctx | cave | agents
 WORKSPACE_ROOTS=~/code ./install.sh   # folders token-savior may index (default: $HOME)
 ```
 
@@ -75,7 +77,7 @@ cd multi-subagents
 .\install.ps1             # asks once, then installs
 ```
 
-Options: `-Yes` (no prompt), `-Skip rtk,ctx` (components: `rtk | crg | ts | ctx | agents`), `-WorkspaceRoots C:\code`.
+Options: `-Yes` (no prompt), `-Skip rtk,ctx` (components: `rtk | crg | ts | ctx | cave | agents`), `-WorkspaceRoots C:\code`.
 If PowerShell blocks the script: `powershell -ExecutionPolicy Bypass -File .\install.ps1`.
 
 What is different on Windows: rtk is downloaded from its GitHub release (SHA-256 verified) into `%USERPROFILE%\.local\bin`, and that folder is added to your **user PATH**; the Python tools go in a venv under `%USERPROFILE%\.local\share\multi-subagents`; `token-report` is installed as `token-report.cmd`. **Open a new terminal afterwards** so the PATH change takes effect, then restart Claude Code. Remove everything with `.\uninstall.ps1`.
@@ -127,7 +129,7 @@ in Claude Code: `/context-mode:ctx-stats` shows sandbox savings.
 
 ## FAQ
 
-**Does this include [caveman](https://github.com/JuliusBrussee/caveman)?** No. It is a separate Claude Code plugin that makes Claude's *replies* shorter. Replies are a small share of tokens (about 1% in the author's history), so it is optional and not part of this setup. It installs on its own: `claude plugin marketplace add JuliusBrussee/caveman && claude plugin install caveman@caveman`.
+**Caveman changes how Claude words its replies. Can I turn it off?** Yes. Install with `--skip cave` (`-Skip cave` on Windows), or run `claude plugin uninstall caveman@caveman` later. It shortens explanations but keeps code, commands, paths and error text exact. Replies are a small share of total tokens (about 1% in the author's history), so expect faster, terser answers more than a big bill change.
 
 ## Security and trust
 
@@ -139,7 +141,7 @@ This installs third-party software that **adds hooks to every Claude Code sessio
 ./uninstall.sh
 ```
 
-Removes the plugin, MCP servers, rtk hook, agents and `token-report`. The `rtk` binary stays in `~/.local/bin`; delete it if you want. Backups from install time are `~/.claude/settings.json.bak-*` and `~/.claude.json.bak-*`.
+Removes the plugins (context-mode, caveman), MCP servers, rtk hook, agents and `token-report`. If you had installed caveman yourself before, it is removed too. The `rtk` binary stays in `~/.local/bin`; delete it if you want. Backups from install time are `~/.claude/settings.json.bak-*` and `~/.claude.json.bak-*`.
 
 ## Files
 

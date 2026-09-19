@@ -7,7 +7,7 @@
 .EXAMPLE
   .\install.ps1 -DryRun                 # print what would happen, change nothing
   .\install.ps1                         # asks once, then installs
-  .\install.ps1 -Yes -Skip rtk,ctx      # no prompt; skip components: rtk | crg | ts | ctx | agents
+  .\install.ps1 -Yes -Skip rtk,ctx      # no prompt; skip components: rtk | crg | ts | ctx | cave | agents
   .\install.ps1 -WorkspaceRoots C:\code # folders token-savior may index (default: your user folder)
 
   If scripts are blocked:  powershell -ExecutionPolicy Bypass -File .\install.ps1
@@ -70,6 +70,7 @@ This will:
   - $(if (Want 'crg')    { "pip-install code-review-graph into $Venv and register it as a user MCP server" } else { '(skip code-review-graph)' })
   - $(if (Want 'ts')     { "pip-install token-savior into $Venv and register it (Bash rewriter OFF, roots: $WorkspaceRoots)" } else { '(skip token-savior)' })
   - $(if (Want 'ctx')    { 'install the context-mode Claude Code plugin (adds hooks)' } else { '(skip context-mode)' })
+  - $(if (Want 'cave')   { 'install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)' } else { '(skip caveman)' })
   - $(if (Want 'agents') { "copy 3 agents to $Agents and token-report to $Bin" } else { '(skip agents)' })
 These are third-party tools that add hooks to every Claude Code session. Read the README first.
 "@
@@ -149,6 +150,13 @@ if (Want 'ctx') {
   Say 'context-mode (sandbox for big output, indexed search, session memory)'
   if (-not $DryRun) { Quiet { claude plugin marketplace add mksglu/context-mode } } else { Write-Host '   [dry-run] claude plugin marketplace add mksglu/context-mode' }
   Run { & claude plugin install context-mode@context-mode } 'claude plugin install context-mode@context-mode'
+}
+
+# ---- caveman plugin ------------------------------------------------------
+if (Want 'cave') {
+  Say 'caveman (terse replies: fewer output tokens)'
+  if (-not $DryRun) { Quiet { claude plugin marketplace add JuliusBrussee/caveman } } else { Write-Host '   [dry-run] claude plugin marketplace add JuliusBrussee/caveman' }
+  Run { & claude plugin install caveman@caveman } 'claude plugin install caveman@caveman'
 }
 
 # ---- agents + report script ---------------------------------------------

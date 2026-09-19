@@ -10,6 +10,8 @@ $env:Path = "$Bin;$env:Path"
 if (Get-Command rtk -ErrorAction SilentlyContinue) { & rtk init -g --uninstall }
 & claude plugin uninstall context-mode@context-mode 2>&1 | Out-Null
 & claude plugin marketplace remove context-mode 2>&1 | Out-Null
+& claude plugin uninstall caveman@caveman 2>&1 | Out-Null
+& claude plugin marketplace remove caveman 2>&1 | Out-Null
 & claude mcp remove -s user code-review-graph 2>&1 | Out-Null
 & claude mcp remove -s user token-savior 2>&1 | Out-Null
 foreach ($f in 'lean-coder.md', 'lean-explorer.md', 'lean-reviewer.md') { Remove-Item "$Home_\.claude\agents\$f" -ErrorAction SilentlyContinue }
