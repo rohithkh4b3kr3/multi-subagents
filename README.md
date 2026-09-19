@@ -149,6 +149,30 @@ You cannot remove history, only stop it growing. What actually helps, most effec
 
 Turn on the status line with `./install.sh --statusline` (`-StatusLine` on Windows). It is off by default because it changes your UI, and it never replaces a status line you already have. `/handoff` is installed with the agents. The dashboard's **Biggest sessions** table shows each session's average context per request and flags the large ones.
 
+## Local history memory (auto-recall)
+
+Old chats are useful, but carrying them costs tokens on every request. `token-history` keeps them **on disk instead** and pulls back only the few lines that matter, when they matter.
+
+- **What is stored:** your prompts and Claude's written replies only, in one SQLite file (`~/.claude/token-history/history.db`, owner-only permissions). Never tool output, file contents, thinking, or web pages. It is roughly 1% of the size of your raw transcripts (about 22K tokens of text for 8 MB of transcripts in the author's case), and it needs no model calls, no server and no installs.
+- **Secrets are removed before anything is stored:** API keys and tokens, bearer/JWT strings, private keys, URL credentials, device/verification codes, long random strings, and any short message that mentions a password, PIN, token or secret is dropped entirely. This was tested against real chats that contained a typed password and a login code; neither is in the index.
+- **Automatic, with `./install.sh --auto-history`** (`-AutoHistory` on Windows): a hook indexes new chats when a session starts, and another checks each prompt of a new chat for a **strong** match against the same project's earlier chats. A match needs several distinctive words (common words are ignored), and then at most 3 short snippets (about 150-250 tokens) are added, labelled as possibly outdated reference data, with a visible notice. It never repeats a snippet and stops after 4 injections per session.
+- **On demand:** `/recall <topic>` searches all projects; `token-history search "topic" --all` does the same in a terminal.
+
+### Is automatic recall risky?
+
+Indexing is low risk: it is local, uses no tokens and calls no model. Auto-recall is the part to watch:
+
+| Risk | What limits it |
+|---|---|
+| **Token cost.** Injected text stays in the conversation and is re-read on every later request. | Strong matches only (most prompts inject nothing), 3 short snippets, 4 per session, no repeats. The hook's total injected tokens are logged: `token-history stats`, and the dashboard shows it. If it costs more than it saves, turn it off. |
+| **Wrong or outdated notes.** | Precision is favoured over recall: it deliberately misses some relevant matches (for example topics that dominate your history) rather than inject noise. Notes are dated and labelled "may be outdated, verify". |
+| **Privacy.** The index holds a copy of your chat text that can outlive Claude Code's own transcript retention. | Redaction as above; owner-only file; it never leaves the machine and is **not** part of the shared-account export (which contains numbers only). Wipe it any time with `token-history forget --all`, or per project/session/age. |
+| **Prompt injection.** Text in old chats could contain instructions (for example quoted from a web page). | Only chat text is indexed, not tool or web output; notes are framed as data, not instructions; snippets are short. This reduces the risk; it cannot remove it. |
+| **Breaking a session.** | Every hook fails open: on any error it does nothing. Each prompt adds about 50 ms. |
+| **Cross-project leakage.** | Same-project only by default (`scope`); `/recall` is the deliberate way to search everything. |
+
+Control it with `token-history auto on | index | off` (`index` keeps indexing but never injects), and remove the hooks with `token-history hooks remove` or `./uninstall.sh` (which also deletes the index).
+
 ## Shared account: who is using how much
 
 If several people use one Claude account, each device only knows its own usage, and Claude gives no per-person breakdown. So each device exports a small summary to a **shared folder**, and the dashboard merges them into a **"Who is using how much"** table: per device, requests, new context, output and re-read, a share bar, and when each device last reported (stale ones are flagged).
@@ -236,6 +260,8 @@ bin/token-dashboard       desktop window with usage charts and stack status
 bin/token_data.py         shared transcript reader (used by both tools)
 bin/token-statusline      optional status line: current conversation size
 commands/handoff.md       /handoff command: save state, then /clear
+commands/recall.md        /recall command: search earlier chats
+bin/token-history         local searchable memory of past chats (+ auto-recall hooks)
 bin/token-report          usage report in the terminal; --export / --team for shared accounts
 assets/token-dashboard.svg  app icon
 install.sh / uninstall.sh        Linux, macOS, WSL

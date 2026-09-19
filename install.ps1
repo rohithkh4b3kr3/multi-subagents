@@ -9,6 +9,7 @@
   .\install.ps1                         # asks once, then installs
   .\install.ps1 -Yes -Skip rtk,ctx      # no prompt; skip components: rtk | crg | ts | ctx | cave | graphify | agents
   .\install.ps1 -DefaultAgent           # make lean-main your default agent in ~\.claude\settings.json
+  .\install.ps1 -AutoHistory            # index past chats locally and auto-recall relevant notes into new chats
   .\install.ps1 -StatusLine             # show conversation size in Claude Code's status line (colour-coded)
   .\install.ps1 -TeamDir \\pc\share\usage -DeviceName alice-pc   # share this device's usage totals (numbers only), exported every 15 min
   .\install.ps1 -WorkspaceRoots C:\code # folders token-savior may index (default: your user folder)
@@ -21,6 +22,7 @@ param(
   [switch]$Yes,
   [switch]$DefaultAgent,
   [switch]$StatusLine,
+  [switch]$AutoHistory,
   [string]$TeamDir = '',
   [string]$DeviceName = '',
   [string[]]$Skip = @(),
@@ -80,6 +82,7 @@ This will:
   - $(if (Want 'graphify') { "pip-install graphify into $Venv and register its /graphify skill (adds 3 lines to ~\.claude\CLAUDE.md)" } else { '(skip graphify)' })
   - $(if (Want 'cave')   { 'install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)' } else { '(skip caveman)' })
   - $(if (Want 'agents') { "copy 4 agents to $Agents and token-report to $Bin" } else { '(skip agents)' })
+$(if ($AutoHistory) { '  - build a local search index of your chat text (secrets removed) and add 2 hooks: index at session start, auto-recall of strong matches on prompts (max 3 short notes, 4 per session)' })
 $(if ($StatusLine) { '  - set statusLine in ~\.claude\settings.json to show the conversation size (skipped if you already have one)' })
 $(if ($TeamDir) { "  - export this device's per-day token totals (numbers and device name only) to $TeamDir every 15 minutes via a scheduled task" })
 These are third-party tools that add hooks to every Claude Code session. Read the README first.
@@ -184,10 +187,12 @@ if (Want 'agents') {
   Run { Copy-Item "$Here\bin\token-report" (Join-Path $Bin 'token-report.py') -Force } "copy token-report.py -> $Bin"
   Run { Copy-Item "$Here\bin\token_data.py" (Join-Path $Bin 'token_data.py') -Force } "copy token_data.py -> $Bin"
   Run { Copy-Item "$Here\bin\token-statusline" (Join-Path $Bin 'token-statusline.py') -Force } "copy token-statusline.py -> $Bin"
+  Run { Copy-Item "$Here\bin\token-history" (Join-Path $Bin 'token-history.py') -Force } "copy token-history.py -> $Bin"
   Run { New-Item -ItemType Directory -Force -Path "$Home_\.claude\commands" | Out-Null } 'mkdir commands'
   foreach ($f in Get-ChildItem "$Here\commands\*.md") { Run { Copy-Item $f.FullName "$Home_\.claude\commands" -Force } "copy $($f.Name) -> commands" }
   Run { Copy-Item "$Here\bin\token-dashboard" (Join-Path $Bin 'token-dashboard.py') -Force } "copy token-dashboard.py -> $Bin"
   $pyCmd = if ($Py) { $Py } else { 'python' }
+  Run { Set-Content -Path (Join-Path $Bin 'token-history.cmd') -Value "@echo off`r`n$pyCmd `"%~dp0token-history.py`" %*" -Encoding ASCII } 'write token-history.cmd'
   Run { Set-Content -Path (Join-Path $Bin 'token-dashboard.cmd') -Value "@echo off`r`n$pyCmd `"%~dp0token-dashboard.py`" %*" -Encoding ASCII } 'write token-dashboard.cmd'
   # Start Menu shortcut "Token stack" (runs minimised so no console window lingers)
   Run { $lnkDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'; $w = New-Object -ComObject WScript.Shell; $l = $w.CreateShortcut((Join-Path $lnkDir 'Token stack.lnk')); $l.TargetPath = (Join-Path $Bin 'token-dashboard.cmd'); $l.WindowStyle = 7; $l.Description = 'Claude Code token usage'; $l.Save() } 'create Start Menu shortcut'
@@ -214,6 +219,13 @@ function Set-SettingIfMissing([string]$Key, [string]$JsonValue, [string]$Label) 
   if ($txt -match '^\s*\{\s*\}\s*$') { Set-Content $sp "{`n  $entry`n}`n" -Encoding UTF8 }
   else { Set-Content $sp ([regex]::Replace($txt, '^\s*\{', { param($m) "{`n  $entry," }, 1)) -Encoding UTF8 }
   Write-Host "   $Label set"
+}
+
+if ($AutoHistory) {
+  Say 'Local history memory (auto-index + auto-recall)'
+  Run { & $Py (Join-Path $Bin 'token-history.py') index } 'token-history index'
+  Run { & $Py (Join-Path $Bin 'token-history.py') hooks install } 'token-history hooks install'
+  Write-Host '   check what it does any time: token-history stats   |   turn it off: token-history auto off'
 }
 
 if ($StatusLine) {

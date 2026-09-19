@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -58,6 +59,23 @@ def rtk_summary():
     return out
 
 
+def history_status(settings):
+    """token-history: is it installed, are its hooks on, and what has auto-recall injected so far."""
+    d = CLAUDE / "token-history"
+    hooks = any("token-history" in h.get("command", "") for e in settings.get("hooks", {}).get("UserPromptSubmit", []) for h in e.get("hooks", []))
+    out = {"installed": any((HOME / ".local/bin" / n).exists() for n in ("token-history", "token-history.py")),
+           "hooks": hooks, "mode": _json(d / "config.json").get("mode", "recall"), "msgs": 0, "inject": 0, "inject_tokens": 0}
+    try:
+        con = sqlite3.connect(f"file:{d / 'history.db'}?mode=ro", uri=True, timeout=2)
+        out["msgs"] = con.execute("SELECT count(*) FROM msgs").fetchone()[0]
+        n, chars = con.execute("SELECT count(*), coalesce(sum(chars),0) FROM events WHERE kind='inject'").fetchone()
+        out["inject"], out["inject_tokens"] = n, round(chars / 4)
+        con.close()
+    except sqlite3.Error:
+        pass
+    return out
+
+
 def status():
     """What is installed, read from config files (no servers are started)."""
     settings = _json(CLAUDE / "settings.json")
@@ -72,6 +90,7 @@ def status():
         "agents": sorted(p.stem for p in agents_dir.glob("*.md")) if agents_dir.is_dir() else [],
         "default_agent": settings.get("agent"),
         "graphify": (CLAUDE / "skills" / "graphify").exists(),
+        "history": history_status(settings),
     }
 
 
@@ -556,6 +575,8 @@ function renderUsage(A) {
   add("token-savior", "symbol-level reads (MCP)", has(S.mcp, "token-savior"), calls(A.mcp, "token-savior"));
   add("context-mode", "big-output sandbox (plugin)", has(S.plugins, "context-mode"), calls(A.mcp, "context-mode"));
   add("graphify", "project/docs map (skill)", S.graphify, calls(A.skill, "graphify"));
+  add("token-history", "auto-recall of past chats (hooks)", S.history.installed, S.history.inject,
+    S.history.hooks ? S.history.msgs + " messages indexed; ~" + comma(S.history.inject_tokens) + " tokens injected in total" : "hooks not installed: token-history hooks install");
   add("caveman", "terse replies (plugin)", has(S.plugins, "caveman"), null, "active via session hooks");
   for (const a of ["lean-main", "lean-explorer", "lean-reviewer", "lean-coder"]) {
     if (a === "lean-main") add(a, "default agent", S.agents.includes(a), null, S.default_agent === a ? "set as default" : "installed, not the default");
@@ -564,7 +585,8 @@ function renderUsage(A) {
   const t = h("table", null, h("thead", null, h("tr", null, h("th", null, "Component"), h("th", null, "Job"), h("th", null, "Status"), h("th", { class: "num" }, "Calls"), h("th", null, "Note"))), h("tbody"));
   for (const r of rows) {
     let st;
-    if (!r.installed) st = statusCell("bad", "Not installed");
+    if (r.name === "token-history" && r.installed) st = S.history.hooks && S.history.mode !== "off" ? statusCell("good", S.history.mode === "index" ? "Active (index only)" : "Active") : statusCell("warn", "Installed, hooks off");
+    else if (!r.installed) st = statusCell("bad", "Not installed");
     else if (r.callCount == null) st = statusCell(r.name === "lean-main" && DATA.status.default_agent !== "lean-main" ? "na" : "good", "Installed");
     else if (r.callCount > 0) st = statusCell("good", "Used");
     else st = statusCell("warn", "Installed, not used");

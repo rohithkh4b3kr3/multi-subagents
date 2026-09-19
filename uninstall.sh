@@ -30,6 +30,9 @@ rm -f "$HOME/.claude/agents/lean-main.md" "$HOME/.claude/agents/lean-coder.md" "
       "$HOME/.local/bin/token_data.py" "$HOME/.local/bin/token-dashboard" "$HOME/.local/bin/token-statusline" "$HOME/.claude/commands/handoff.md" \
       "$HOME/.local/share/applications/token-dashboard.desktop" "$HOME/.local/share/icons/token-dashboard.svg"
 rm -rf "$HOME/.cache/token-dashboard"
+"$HOME/.local/bin/token-history" hooks remove 2>/dev/null
+rm -f "$HOME/.local/bin/token-history" "$HOME/.claude/commands/recall.md"
+rm -rf "$HOME/.claude/token-history"   # the local chat-text index
 command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -q "# multi-subagents" && { crontab -l | grep -v "# multi-subagents" | crontab -; echo "removed cron job"; }
 rm -rf "$HOME/.config/token-stack"
 rm -rf "$STACK"

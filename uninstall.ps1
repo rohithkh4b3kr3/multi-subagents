@@ -21,6 +21,10 @@ if ((Test-Path $sp) -and ((Get-Content $sp -Raw) -match '"agent"\s*:\s*"lean-mai
   Set-Content $sp $c -Encoding UTF8; Write-Host 'removed default agent setting (check settings.json is still valid JSON)'
 }
 if ((Test-Path $sp) -and ((Get-Content $sp -Raw) -match 'token-statusline')) { Write-Host 'note: remove the "statusLine" entry that points to token-statusline from settings.json by hand' }
+$th = "$Bin\token-history.py"
+if (Test-Path $th) { & python $th hooks remove 2>&1 | Out-Null }
+Remove-Item "$Bin\token-history.py", "$Bin\token-history.cmd", "$Home_\.claude\commands\recall.md" -ErrorAction SilentlyContinue
+Remove-Item "$Home_\.claude\token-history" -Recurse -Force -ErrorAction SilentlyContinue   # the local chat-text index
 foreach ($f in 'lean-main.md', 'lean-coder.md', 'lean-explorer.md', 'lean-reviewer.md') { Remove-Item "$Home_\.claude\agents\$f" -ErrorAction SilentlyContinue }
 Remove-Item "$Bin\token-report.py", "$Bin\token-report.cmd", "$Bin\token_data.py", "$Bin\token-dashboard.py", "$Bin\token-dashboard.cmd", "$Bin\token-statusline.py", "$Home_\.claude\commands\handoff.md" -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Token stack.lnk') -ErrorAction SilentlyContinue
