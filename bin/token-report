@@ -32,7 +32,7 @@ for f in sorted(glob.glob(f"{root}/*/*.jsonl")):
     if os.path.getmtime(f) < cutoff:
         continue
     su, names, turns = collections.Counter(), {}, 0
-    for line in open(f, errors="ignore"):
+    for line in open(f, encoding="utf-8", errors="ignore"):
         try:
             r = json.loads(line)
         except ValueError:

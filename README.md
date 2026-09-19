@@ -35,11 +35,11 @@ Subagents work in their own context. Their file reads never enter your main conv
 
 ## Requirements
 
-- Linux or macOS (tested on Ubuntu 24.04)
+- **Linux or macOS** (tested on Ubuntu 24.04), **Windows** (PowerShell or WSL, see below)
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) installed (`claude --version`)
-- `python3` 3.11+ with `venv` (Ubuntu: `sudo apt install python3-venv`)
-- `curl`
-- Node.js (only for context-mode; skip it with `--skip ctx`)
+- Python 3.11+ with `venv` (Ubuntu: `sudo apt install python3-venv`; Windows: python.org installer, tick "Add python.exe to PATH")
+- `curl` (Linux/macOS only)
+- Node.js (only for context-mode; skip it with `--skip ctx` / `-Skip ctx`)
 
 ## Install
 
@@ -61,6 +61,26 @@ WORKSPACE_ROOTS=~/code ./install.sh   # folders token-savior may index (default:
 The installer backs up `~/.claude/settings.json` and `~/.claude.json` first, and is safe to re-run.
 
 **Then restart Claude Code** (agents, hooks and MCP servers load at startup).
+
+### Windows
+
+Two options. **WSL is the most reliable**, because everything here was built and tested on Linux: open a WSL terminal, install Claude Code there, and follow the Linux steps above.
+
+For native Windows use PowerShell (5.1 or 7):
+
+```powershell
+git clone https://github.com/rohithkh4b3kr3/multi-subagents
+cd multi-subagents
+.\install.ps1 -DryRun     # see exactly what it will do, changes nothing
+.\install.ps1             # asks once, then installs
+```
+
+Options: `-Yes` (no prompt), `-Skip rtk,ctx` (components: `rtk | crg | ts | ctx | agents`), `-WorkspaceRoots C:\code`.
+If PowerShell blocks the script: `powershell -ExecutionPolicy Bypass -File .\install.ps1`.
+
+What is different on Windows: rtk is downloaded from its GitHub release (SHA-256 verified) into `%USERPROFILE%\.local\bin`, and that folder is added to your **user PATH**; the Python tools go in a venv under `%USERPROFILE%\.local\share\multi-subagents`; `token-report` is installed as `token-report.cmd`. **Open a new terminal afterwards** so the PATH change takes effect, then restart Claude Code. Remove everything with `.\uninstall.ps1`.
+
+> **Status:** the PowerShell scripts were written and reviewed but **have not been run on a real Windows machine yet**. Run `-DryRun` first, and please open an issue if anything breaks. rtk's own docs list Windows as supported, but if its hook misbehaves for you, skip it with `-Skip rtk` and use the rest.
 
 ### Check it worked
 
@@ -92,6 +112,7 @@ token-report --days 7      # cache re-reads, tool-output share, top commands, MC
 token-report --sessions    # per-session table
 rtk gain                   # shell-output savings
 ```
+(On Windows the same commands work in a new terminal.)
 in Claude Code: `/context-mode:ctx-stats` shows sandbox savings.
 
 `token-report` reads only your local `~/.claude/projects/*.jsonl` transcripts and sends nothing anywhere. If it says "MCP tool calls: none", the model is not actually using the tools, which is worth investigating before you believe any savings.
@@ -103,6 +124,10 @@ in Claude Code: `/context-mode:ctx-stats` shows sandbox savings.
 - The MCP servers add tool definitions to each request. On tiny tasks that overhead can cancel the gain.
 - token-savior's published benchmark is unverified (its README says so). Keep it only if `token-report` shows it being used; otherwise remove it (`./install.sh --skip ts` on a fresh install, or `claude mcp remove -s user token-savior`).
 - The biggest saving is free: run `/clear` between unrelated tasks, and `/compact <focus>` in long ones.
+
+## FAQ
+
+**Does this include [caveman](https://github.com/JuliusBrussee/caveman)?** No. It is a separate Claude Code plugin that makes Claude's *replies* shorter. Replies are a small share of tokens (about 1% in the author's history), so it is optional and not part of this setup. It installs on its own: `claude plugin marketplace add JuliusBrussee/caveman && claude plugin install caveman@caveman`.
 
 ## Security and trust
 
@@ -123,7 +148,8 @@ agents/lean-coder.md      edit agent (sonnet)
 agents/lean-explorer.md   read-only exploration agent (haiku)
 agents/lean-reviewer.md   read-only review agent (sonnet)
 bin/token-report          usage report from local transcripts
-install.sh / uninstall.sh
+install.sh / uninstall.sh        Linux, macOS, WSL
+install.ps1 / uninstall.ps1      native Windows (PowerShell)
 ```
 
 ## Credits
