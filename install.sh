@@ -5,7 +5,7 @@
 #   ./install.sh                 install everything (asks once before changing anything)
 #   ./install.sh --dry-run       print what would happen, change nothing
 #   ./install.sh -y              no confirmation prompt
-#   ./install.sh --skip rtk,ctx  skip components: rtk | crg | ts | ctx | cave | graphify | agents
+#   ./install.sh --skip rtk,ctx  skip components: rtk | crg | ts | ctx | cave | graphify | dash | agents
 #   ./install.sh --default-agent make lean-main your default agent in ~/.claude/settings.json
 #   ./install.sh --auto-history  index your past chats locally and auto-recall relevant notes into new chats
 #   ./install.sh --statusline    show conversation size in Claude Code's status line (colour-coded)
@@ -65,6 +65,7 @@ This will:
   - $(want ctx    && echo "install the context-mode Claude Code plugin (adds hooks)" || echo "(skip context-mode)")
   - $(want graphify && echo "pip-install graphify into $VENV and register its /graphify skill (adds 3 lines to ~/.claude/CLAUDE.md)" || echo "(skip graphify)")
   - $(want cave   && echo "install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)" || echo "(skip caveman)")
+  - $(want dash   && echo "install the \`dash\` terminal dashboard to ~/.local/bin (it only opens in an interactive terminal; \`dash script.sh\` and \`dash -c ...\` still run the system dash shell)" || echo "(skip dash command)")
   - $(want agents && echo "copy 4 agents to ~/.claude/agents and token-report to ~/.local/bin" || echo "(skip agents)")
 $([ "$AUTO_HISTORY" = 1 ] && echo "  - build a local search index of your chat text (secrets removed) and add 2 hooks: index at session start, auto-recall of strong matches on prompts (max 3 short notes, 4 per session)")
 $([ "$STATUSLINE" = 1 ] && echo "  - set statusLine in ~/.claude/settings.json to show the conversation size (skipped if you already have one)")
@@ -135,6 +136,15 @@ if want cave; then
   say "caveman (terse replies: fewer output tokens)"
   run claude plugin marketplace add JuliusBrussee/caveman || echo "   (marketplace already added?)"
   run claude plugin install caveman@caveman
+fi
+
+# ---- dash: terminal dashboard ---------------------------------------------
+if want dash; then
+  say "dash (terminal dashboard)"
+  run mkdir -p "$HOME/.local/bin"
+  run install -m 0644 "$HERE/bin/token_data.py" "$HOME/.local/bin/token_data.py"
+  run install -m 0755 "$HERE/bin/dash" "$HOME/.local/bin/dash"
+  echo "   type \`dash\` in a terminal. Note: \`dash\` is also the Debian/Ubuntu shell; this one hands over to it for scripts (dash -c, dash file.sh, piped input)."
 fi
 
 # ---- agents + report script ---------------------------------------------
@@ -226,5 +236,6 @@ case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to 
 say "Done"
 echo "Restart Claude Code, then check:  claude mcp list   /context-mode:ctx-doctor   rtk gain"
 echo "Try:  \"use lean-explorer to explain how <something> works\""
+echo "Terminal view: dash            (themes: t, keys: ?)"
 echo "Desktop view:  token-dashboard   (or \"Token stack\" in your app menu)"
 echo "After a week:  token-report --days 7"

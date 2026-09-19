@@ -68,6 +68,12 @@ class DashboardServer(TempHome):
                 d = json.load(resp)
             self.assertEqual(d["buckets"][0]["cr"], 95)
             self.assertIn("team", d); self.assertIn("status", d)
+            with urllib.request.urlopen(base + "/api/view?range=all&rank=req&project=nope") as resp:
+                v = json.load(resp)
+            self.assertEqual(v["range"], "all"); self.assertEqual(v["team"]["rank"], "req"); self.assertEqual(v["totals"]["req"], 0)   # unknown project => empty
+            with urllib.request.urlopen(base + "/api/view?range=garbage&rank=garbage") as resp:
+                v = json.load(resp)
+            self.assertEqual((v["range"], v["team"]["rank"]), ("30", "fresh"))                                                        # bad params fall back safely
             with urllib.request.urlopen(base + "/") as page:
                 self.assertIn("Content-Security-Policy", page.read().decode())
             for path, host, code in (("/api/data", "evil.example.com", 421), ("/nope", "127.0.0.1", 404)):

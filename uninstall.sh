@@ -29,6 +29,7 @@ rm -f "$HOME/.claude/agents/lean-main.md" "$HOME/.claude/agents/lean-coder.md" "
       "$HOME/.claude/agents/lean-reviewer.md" "$HOME/.local/bin/token-report" \
       "$HOME/.local/bin/token_data.py" "$HOME/.local/bin/token-dashboard" "$HOME/.local/bin/token-statusline" "$HOME/.claude/commands/handoff.md" \
       "$HOME/.local/share/applications/token-dashboard.desktop" "$HOME/.local/share/icons/token-dashboard.svg"
+rm -f "$HOME/.local/bin/dash"
 rm -rf "$HOME/.cache/token-dashboard"
 "$HOME/.local/bin/token-history" hooks remove 2>/dev/null
 rm -f "$HOME/.local/bin/token-history" "$HOME/.claude/commands/recall.md"

@@ -6,7 +6,7 @@ Usage is counted once per API request (transcripts repeat it across rows).
 
   token-report              all history
   token-report --days 7     only the last 7 days (including today)
-  token-report --project ai24c   only projects whose name contains this
+  token-report --project myapp   only projects whose name contains this
   token-report --sessions   per-session table
 
 Shared account, several people/devices:

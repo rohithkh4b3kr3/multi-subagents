@@ -8,3 +8,5 @@ bin/token_data.py text eol=lf
 bin/token-statusline text eol=lf
 commands/*.md text eol=lf
 bin/token-history text eol=lf
+bin/dash text eol=lf
+docs/*.png binary

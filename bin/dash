@@ -1,0 +1,662 @@
+#!/usr/bin/env python3
+"""dash: your Claude Code token usage in the terminal.
+
+  dash                    open the dashboard (interactive terminals only)
+  dash --demo             show built-in sample data (no Claude Code history needed)
+  dash --once             print one frame and exit (pipe-friendly, no colours unless --color)
+  dash --theme NAME       tokyo-night (default) | catppuccin-mocha | dracula | gruvbox-dark | one-dark | github-light
+  dash --range today|7|30|all     --tab overview|stack|team|sessions|all     --ascii     --no-bg     --color
+
+Keys:  <- ->/Tab tabs   1-4 range   p project   m metric   t/T theme   r refresh   up/down scroll   ? help   q quit
+
+Note: `dash` is also the name of the Debian/Ubuntu shell. To stay safe, this command only opens the dashboard
+when started with no arguments (or only its own options) in an interactive terminal. In every other case
+(`dash script.sh`, `dash -c "..."`, piped input) it hands over to the real shell untouched.
+Standard library only. Reads local transcripts; nothing leaves your machine.
+"""
+import os
+import re
+import shutil
+import signal
+import sys
+import textwrap
+import threading
+import time
+import unicodedata
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import token_data as td  # noqa: E402
+
+TABS = ("overview", "stack", "team", "sessions")
+TAB_LABELS = {"overview": "Overview", "stack": "Stack", "team": "Team", "sessions": "Sessions"}
+CHART_METRICS = (("cr", "History re-read"), ("cw", "New context"), ("out", "Output"), ("req", "Requests"))
+RANK_LABELS = {"fresh": "new + output", "cr": "re-read", "req": "requests"}
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+BOLD, NOBOLD = "\x1b[1m", "\x1b[22m"
+BLOCKS = " ▁▂▃▄▅▆▇█"
+HBLOCKS = " ▏▎▍▌▋▊▉█"
+
+UNI = {"tl": "╭", "tr": "╮", "bl": "╰", "br": "╯", "h": "─", "v": "│", "ok": "✓", "warn": "!", "bad": "✕", "na": "–", "dot": "·",
+       "up": "▲", "down": "▼", "logo": "▚", "ell": "…", "arrow": "→"}
+ASC = {"tl": "+", "tr": "+", "bl": "+", "br": "+", "h": "-", "v": "|", "ok": "v", "warn": "!", "bad": "x", "na": "-", "dot": "|",
+       "up": "^", "down": "v", "logo": "#", "ell": "~", "arrow": ">"}
+
+# 3x5 block digits for the headline number
+BIG = {"0": ("███", "█ █", "█ █", "█ █", "███"), "1": (" █ ", "██ ", " █ ", " █ ", "███"), "2": ("███", "  █", "███", "█  ", "███"),
+       "3": ("███", "  █", "███", "  █", "███"), "4": ("█ █", "█ █", "███", "  █", "  █"), "5": ("███", "█  ", "███", "  █", "███"),
+       "6": ("███", "█  ", "███", "█ █", "███"), "7": ("███", "  █", "  █", "  █", "  █"), "8": ("███", "█ █", "███", "█ █", "███"),
+       "9": ("███", "█ █", "███", "  █", "███"), "%": ("█ █", "  █", " █ ", "█  ", "█ █"), "-": ("   ", "   ", "███", "   ", "   ")}
+
+
+# ------------------------------------------------------------------ text width helpers
+def _cw(ch):
+    if unicodedata.combining(ch):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def vlen(s):
+    return sum(_cw(c) for c in ANSI.sub("", s))
+
+
+def pad(s, w, align="l"):
+    gap = max(0, w - vlen(s))
+    return s + " " * gap if align == "l" else " " * gap + s if align == "r" else " " * (gap // 2) + s + " " * (gap - gap // 2)
+
+
+ELLIPSIS = "…"
+
+
+def clip(s, w, ell=None):
+    """Truncate to w visible cells, keeping ANSI codes intact."""
+    ell = ELLIPSIS if ell is None else ell
+    if vlen(s) <= w:
+        return s
+    out, used = [], 0
+    limit = max(0, w - 1)
+    for part in re.split(r"(\x1b\[[0-9;?]*[A-Za-z])", s):
+        if ANSI.fullmatch(part):
+            out.append(part)
+            continue
+        for ch in part:
+            cw = _cw(ch)
+            if used + cw > limit:
+                return "".join(out) + ell
+            out.append(ch); used += cw
+    return "".join(out)
+
+
+def fit(s, w, align="l"):
+    return pad(clip(s, w), w, align)
+
+
+# ------------------------------------------------------------------ painter (theme -> escape codes)
+def _to256(r, g, b):
+    if r == g == b:
+        return 16 if r < 8 else 231 if r > 248 else round((r - 8) / 247 * 24) + 232
+    return 16 + 36 * round(r / 255 * 5) + 6 * round(g / 255 * 5) + round(b / 255 * 5)
+
+
+def supports_truecolor():
+    return (os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit") or "WT_SESSION" in os.environ
+            or any(x in os.environ.get("TERM", "") for x in ("truecolor", "direct", "24bit")) or os.environ.get("TERM_PROGRAM") in ("iTerm.app", "vscode", "WezTerm"))
+
+
+class Painter:
+    def __init__(self, theme=td.DEFAULT_THEME, truecolor=True, unicode_ok=True, paint_bg=True, color=True):
+        self.name = theme if theme in td.THEMES else td.DEFAULT_THEME
+        self.t, self.tc, self.paint_bg, self.color = td.THEMES[self.name], truecolor, paint_bg, color
+        self.ch = UNI if unicode_ok else ASC
+        self.blocks = BLOCKS if unicode_ok else " ._-=+*#@"[:9]
+        self.hblocks = HBLOCKS if unicode_ok else " " * 8 + "#"
+        self._cache = {}
+
+    def code(self, key, fg=True):
+        if not self.color:
+            return ""
+        k = (key, fg)
+        if k not in self._cache:
+            h = self.t[key]
+            r, g, b = int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)
+            self._cache[k] = f"\x1b[{38 if fg else 48};2;{r};{g};{b}m" if self.tc else f"\x1b[{38 if fg else 48};5;{_to256(r, g, b)}m"
+        return self._cache[k]
+
+    @property
+    def base_bg(self):
+        return self.code("bg", False) if self.paint_bg else ("\x1b[49m" if self.color else "")
+
+    def c(self, key, text, bold=False):
+        if not self.color:
+            return text
+        return f"{self.code(key)}{BOLD if bold else ''}{text}{NOBOLD if bold else ''}{self.code('fg')}"
+
+    def chip(self, text, fgk, bgk):
+        if not self.color:
+            return f"[{text.strip()}]"
+        return f"{self.code(bgk, False)}{self.code(fgk)}{text}{self.base_bg}{self.code('fg')}"
+
+    def surface(self, text, width):
+        """Text on the raised surface colour, padded to width."""
+        s = pad(clip(text, width), width)
+        return f"{self.code('surface', False)}{s}{self.base_bg}" if self.color else s
+
+    def full(self, s, width):
+        s = pad(clip(s, width), width)
+        return f"{self.base_bg}{self.code('fg')}{s}\x1b[0m" if self.color else s
+
+
+# ------------------------------------------------------------------ components
+def card(P, title, body, w, hint="", key="border"):
+    ch, inner = P.ch, max(1, w - 4)
+    head = f" {P.c('accent', title, True)} "
+    right = f" {P.c('dim', hint)} " if hint else ""
+    fill = max(0, w - 2 - vlen(head) - vlen(right))
+    b = P.code(key)
+    lines = [f"{b}{ch['tl']}{ch['h']}{P.code('fg')}{clip(head, w - 4)}{b}{ch['h'] * max(0, fill - 1)}{P.code('fg')}{right if fill >= 0 else ''}{b}{ch['tr']}{P.code('fg')}"]
+    for ln in body:
+        lines.append(f"{b}{ch['v']}{P.code('fg')} {fit(ln, inner)} {b}{ch['v']}{P.code('fg')}")
+    lines.append(f"{b}{ch['bl']}{ch['h'] * (w - 2)}{ch['br']}{P.code('fg')}")
+    return lines
+
+
+def hjoin(blocks, gap=2):
+    """Place blocks (list of (lines, width)) side by side."""
+    h = max(len(b[0]) for b in blocks)
+    out = []
+    for i in range(h):
+        out.append((" " * gap).join(b[0][i] if i < len(b[0]) else " " * b[1] for b in blocks))
+    return out
+
+
+def hbar(P, frac, width, key="accent"):
+    eighths = max(0, min(width * 8, round(frac * width * 8)))
+    full, rem = divmod(eighths, 8)
+    s = P.hblocks[8] * full + (P.hblocks[rem] if rem else "")
+    return P.c(key, s) + " " * (width - vlen(s))
+
+
+def spark(P, values, width, key="accent"):
+    vals = values[-width:]
+    m = max(vals) if vals else 0
+    s = "".join(" " if not v or not m else P.blocks[max(1, round(v / m * 8))] for v in vals)
+    return P.c(key, s) + " " * (width - len(vals))
+
+
+def big_number(P, text, key="accent2"):
+    rows = ["", "", "", "", ""]
+    for i, ch in enumerate(text):
+        g = BIG.get(ch, BIG["-"])
+        for r in range(5):
+            rows[r] += g[r].replace("█", P.blocks[8] if P.ch is UNI else "#") + " "
+    return [P.c(key, r, True) for r in rows]
+
+
+def column_chart(P, series, width, height, latest_key="accent2"):
+    """series: [(label, value)]. Returns lines: y-axis + bars + x labels."""
+    if not series:
+        return [P.c("dim", "no data in this range")]
+    ax = 6
+    plot_w = max(8, width - ax - 1)
+    vals = [v for _, v in series]
+    # too many points for the width: sum them into groups
+    group = 1
+    while -(-len(vals) // group) * 2 > plot_w and len(vals) // group > 1:
+        group += 1
+    if group > 1:
+        vals = [sum(vals[i:i + group]) for i in range(0, len(vals), group)]
+        labels = [series[i][0] for i in range(0, len(series), group)]
+    else:
+        labels = [l for l, _ in series]
+    slot = 2 if len(vals) * 2 <= plot_w else 1
+    mx = max(vals) or 1
+    scale = td.compact(mx)
+    lines = []
+    for r in range(height):
+        row = ""
+        for i, v in enumerate(vals):
+            eighths = round(v / mx * height * 8)
+            fill = max(0, min(8, eighths - (height - 1 - r) * 8))
+            cell = P.blocks[fill] if fill else " "
+            row += P.c(latest_key if i == len(vals) - 1 else "accent", cell) + (" " if slot == 2 else "")
+        y = scale if r == 0 else td.compact(mx / 2) if r == height // 2 else "0" if r == height - 1 else ""
+        lines.append(P.c("dim", y.rjust(ax - 1)) + " " + row)
+    n = len(vals)
+    xs = [" "] * (n * slot)
+    first, last = series[0][0][5:], series[-1][0][5:]              # always show the real first and last day
+    lab = lambda pos, txt: [xs.__setitem__(pos + k, c) for k, c in enumerate(txt) if 0 <= pos + k < len(xs)]
+    lab(0, first)
+    if n * slot > 24:
+        lab(max(0, (n * slot - len(last))), last)
+        if n * slot > 40:
+            mid = labels[n // 2][5:]
+            lab(n * slot // 2 - len(mid) // 2, mid)
+    lines.append(" " * ax + P.c("dim", "".join(xs)))
+    return lines
+
+
+def table(P, headers, rows, widths, aligns):
+    """headers: [str]; rows: [[cell]]; widths/aligns per column. Cells may contain ANSI."""
+    def fmt(cells, head=False):
+        return "  ".join(fit(P.c("dim", c) if head else c, w, a) for c, w, a in zip(cells, widths, aligns))
+    out = [fmt(headers, True), P.c("border", P.ch["h"] * min(sum(widths) + 2 * (len(widths) - 1), 400))]
+    return out + [fmt(r) for r in rows]
+
+
+def verdict_cell(P, v):
+    kind, label = {"used": ("good", "Used"), "active": ("good", "Active"), "installed": ("dim", "Installed"),
+                   "unused": ("warn", "Installed, not used"), "hookoff": ("warn", "Installed, hooks off"), "missing": ("bad", "Not installed")}.get(v, ("dim", v))
+    icon = {"good": P.ch["ok"], "warn": P.ch["warn"], "bad": P.ch["bad"], "dim": P.ch["na"]}[kind]
+    return f"{P.c(kind, icon, True)} {label}"
+
+
+# ------------------------------------------------------------------ state + screens
+class State:
+    def __init__(self, theme, rng, tab="overview"):
+        self.data = None
+        self.theme, self.range, self.tab = theme, rng, tab
+        self.project = "all"
+        self.chart_metric, self.rank = "cr", "fresh"
+        self.scroll, self.help, self.error, self.refreshing = 0, False, None, False
+        self.fetched = 0.0
+
+
+def V(st):
+    return td.view(st.data, st.range, st.project, st.rank)
+
+
+def overview(P, st, w):
+    v = V(st)
+    T = v["totals"]
+    out = []
+    # hero
+    pct = "-" if T["reread_pct"] is None else f"{T['reread_pct']}%"
+    big = big_number(P, pct)
+    cap_w = max(20, w - 6 - (len(pct) * 4) - 2)
+    cap = textwrap.wrap("of the input tokens in this range were the conversation being re-read from cache. Each request re-sends the whole history, "
+                        "so shorter sessions (/clear between tasks) save more than any single tool." if T["reread_pct"] is not None else "No usage in this range.", cap_w)
+    cap = [P.c("dim", c) for c in cap]
+    body = []
+    for i in range(5):
+        body.append(big[i] + "  " + (cap[i] if i < len(cap) else ""))
+    out += card(P, "Where your tokens go", body, w, f"{v['range_label']} {P.ch['dot']} {st.project if st.project != 'all' else 'all projects'}")
+    # KPI tiles
+    days = v["days"]
+    rtk = v["rtk"] or {}
+    tiles = [("Requests", f"{T['req']:,}", spark(P, [d["req"] for d in days], 12), "model calls"),
+             ("New context", td.compact(T["cw"]), spark(P, [d["cw"] for d in days], 12), "to cache"),
+             ("Re-read", td.compact(T["cr"]), spark(P, [d["cr"] for d in days], 12), "from cache"),
+             ("Output", td.compact(T["out"]), spark(P, [d["out"] for d in days], 12), "Claude wrote"),
+             ("Tool output", "~" + td.compact(T["tool_tokens"]), "", "est. tokens"),
+             ("rtk saved", td.compact(rtk["total_saved"]) if rtk.get("total_saved") is not None else "-", "", f"{rtk.get('total_commands', 0):,} commands")]
+    per = 6 if w >= 96 else 3 if w >= 54 else 2
+    gap = 1
+    tw = (w - gap * (per - 1)) // per
+    for i in range(0, len(tiles), per):
+        chunk = tiles[i:i + per]
+        cols = []
+        for label, value, sp, note in chunk:
+            lines = [P.surface(" " + P.c("dim", label), tw), P.surface(" " + P.c("fg", value, True), tw),
+                     P.surface(" " + sp, tw), P.surface(" " + P.c("dim", note), tw)]
+            cols.append((lines, tw))
+        out += hjoin(cols, gap)
+    # chart
+    metric = st.chart_metric
+    name = dict(CHART_METRICS)[metric]
+    series = [(d["d"], d[metric]) for d in days]
+    total = sum(v_ for _, v_ in series)
+    out += card(P, f"{name} per day", column_chart(P, series, w - 4, 8), w, f"m: metric {P.ch['dot']} total {td.compact(total)}")
+    # bars
+    def bars(rows, fmt):
+        if not rows:
+            return [P.c("dim", "nothing in this range")]
+        mx = max(r[1] for r in rows) or 1
+        label_w = min(18, max(len(r[0]) for r in rows))
+        val_w = max(len(fmt(r[1])) for r in rows)
+        bw = max(6, (w if w < 100 else (w - 2) // 2) - 4 - label_w - val_w - 2)
+        return [f"{P.c('dim', fit(r[0], label_w))} {hbar(P, r[1] / mx, bw)} {fit(fmt(r[1]), val_w, 'r')}" for r in rows]
+    tools = [(t["name"].replace("mcp__", "mcp:").replace("__", " > ") if t["name"] != "?" else "(unknown)", t["tokens"]) for t in v["tools"]]
+    cmds = [(c["name"], c["n"]) for c in v["commands"]]
+    if w >= 100:
+        cw_ = (w - 2) // 2
+        out += hjoin([(card(P, "Tool output (est. tokens)", bars(tools, lambda x: "~" + td.compact(x)), cw_), cw_),
+                      (card(P, "Shell commands", bars(cmds, lambda x: f"{int(x)}x"), w - 2 - cw_), w - 2 - cw_)])
+    else:
+        out += card(P, "Tool output (est. tokens)", bars(tools, lambda x: "~" + td.compact(x)), w)
+        out += card(P, "Shell commands", bars(cmds, lambda x: f"{int(x)}x"), w)
+    return out
+
+
+def layout(cols, inner):
+    """cols: [(width | None for the one stretch column, min_width, priority)]. Drops the lowest-priority
+    columns until everything fits in `inner`; returns [(column_index, width)]."""
+    keep = list(range(len(cols)))
+    total = lambda k: sum(cols[i][0] or cols[i][1] for i in k) + 2 * (len(k) - 1)
+    while total(keep) > inner and len(keep) > 2:
+        droppable = [i for i in keep if cols[i][2] < 99]
+        if not droppable:
+            break
+        keep.remove(min(droppable, key=lambda i: cols[i][2]))
+    fixed = sum(cols[i][0] for i in keep if cols[i][0]) + 2 * (len(keep) - 1)
+    return [(i, cols[i][0] or max(cols[i][1], inner - fixed)) for i in keep]
+
+
+def grid(P, spec, rows, inner):
+    """spec: [(header, width|None, min_width, priority, align)]; rows: [[cell,...]] in spec order."""
+    kept = layout([(w, m, pr) for _, w, m, pr, _ in spec], inner)
+    return table(P, [spec[i][0] for i, _ in kept], [[r[i] for i, _ in kept] for r in rows], [w for _, w in kept], [spec[i][4] for i, _ in kept])
+
+
+def stack_screen(P, st, w):
+    v = V(st)
+    spec = [("Component", 18, 18, 99, "l"), ("Job", 35, 35, 40, "l"), ("Status", 22, 22, 99, "l"), ("Calls", 7, 7, 90, "r"), ("Note", None, 10, 30, "l")]
+    rows = [[P.c("fg", r["name"], True), P.c("dim", r["job"]), verdict_cell(P, r["verdict"]), "-" if r["calls"] is None else f"{r['calls']:,}", P.c("dim", r["note"])] for r in v["stack"]]
+    out = card(P, "Is the stack actually used?", grid(P, spec, rows, w - 4), w, v["range_label"])
+    out += [""] + [P.c("dim", l) for l in textwrap.wrap("Installed is not the same as working. \"Not used\" means no calls in the selected range: try a fresh session. "
+                                                      "token-history reports 'Active' when its hooks are on; its calls column counts injections.", w)]
+    return out
+
+
+def team_screen(P, st, w):
+    v = V(st)
+    rows_data = v["team"]["rows"]
+    rows = []
+    for r in rows_data:
+        if r["local"]:
+            upd = f"{P.c('good', P.ch['ok'], True)} live"
+        else:
+            h = r["age_hours"]
+            txt = "unknown" if h is None or h == float("inf") else f"{max(1, round(h * 60))} min ago" if h < 1 else f"{round(h)} h ago" if h < 48 else f"{round(h / 24)} d ago"
+            upd = f"{P.c('warn', P.ch['warn'], True)} {txt} (stale)" if r["stale"] else txt
+        rows.append([r["device"] + (P.c("dim", " (this device)") if r["local"] else ""), upd, f"{r['req']:,}", td.compact(r["cw"]), td.compact(r["out"]), td.compact(r["cr"]),
+                     f"{hbar(P, r['share'], 10)} {round(r['share'] * 100):>3}%"])
+    tot = lambda k: sum(r[k] for r in rows_data)
+    rows.append([P.c("fg", "Total", True), "", f"{tot('req'):,}", td.compact(tot("cw")), td.compact(tot("out")), td.compact(tot("cr")), ""])
+    spec = [("Device", None, 14, 99, "l"), ("Last update", 19, 19, 60, "l"), ("Requests", 9, 9, 99, "r"), ("New ctx", 8, 8, 50, "r"),
+            ("Output", 8, 8, 40, "r"), ("Re-read", 8, 8, 55, "r"), ("Share", 15, 15, 95, "l")]
+    out = card(P, "Who is using how much", grid(P, spec, rows, w - 4), w, f"ranked by {RANK_LABELS[st.rank]} {P.ch['dot']} m: change")
+    if v["team"]["dir"]:
+        note = f"Devices that share {v['team']['dir']}. This device is live; the others update whenever they export."
+    else:
+        note = "Only this device is shown. To add other devices, run on each one:  token-report --export <shared folder> --name <who>"
+    out += [""] + [P.c("dim", l) for l in textwrap.wrap(note, w)]
+    return out
+
+
+def sessions_screen(P, st, w):
+    v = V(st)
+    rows = []
+    for s_ in v["sessions"]:
+        note = f"{P.c('warn', P.ch['warn'], True)} Large: /handoff + /clear" if s_["large"] else ""
+        rows.append([s_["end"], s_["project"] + (" (subagent)" if s_["sub"] else ""), f"{s_['req']:,}", td.compact(s_["avg"]), td.compact(s_["cr"]), td.compact(s_["cw"]), td.compact(s_["out"]), note])
+    if not rows:
+        rows = [[P.c("dim", "no sessions in this range")] + [""] * 7]
+    spec = [("Ended", 10, 10, 99, "l"), ("Project", None, 12, 99, "l"), ("Requests", 9, 9, 90, "r"), ("Avg ctx", 8, 8, 95, "r"), ("Re-read", 8, 8, 60, "r"),
+            ("New ctx", 8, 8, 40, "r"), ("Output", 8, 8, 30, "r"), ("Note", 26, 26, 50, "l")]
+    out = card(P, "Biggest sessions", grid(P, spec, rows, w - 4), w, v["range_label"])
+    out += [""] + [P.c("dim", l) for l in textwrap.wrap("Every request re-sends the whole conversation. Avg ctx is roughly what each request in that session re-read. "
+                                                      "Large sessions (100K+) are the ones worth handing off and clearing.", w)]
+    return out
+
+
+def help_screen(P, st, w):
+    keys = [("Left Right / Tab", "switch tab"), ("1 2 3 4", "range: today / 7 days / 30 days / all"), ("p", "cycle project"), ("m", "cycle metric (chart, or team ranking)"),
+            ("t / T", "next / previous theme"), ("r", "refresh now"), ("Up Down PgUp PgDn", "scroll"), ("?", "toggle this help"), ("q / Ctrl+C", "quit")]
+    body = [f"{P.c('accent', k.ljust(18), True)} {d}" for k, d in keys] + ["", P.c("dim", "Themes: " + ", ".join(td.THEMES)), P.c("dim", f"Current: {P.name}")]
+    return card(P, "Keys", body, min(w, 70))
+
+
+SCREENS = {"overview": overview, "stack": stack_screen, "team": team_screen, "sessions": sessions_screen}
+
+
+def render(P, st, width, height=None, all_tabs=False):
+    """Full frame as a list of lines (each padded to `width`). height=None => no viewport (for --once)."""
+    if st.data is None:
+        body = [P.c("dim", "loading your usage..." if not st.error else f"could not load data: {st.error}")]
+    elif st.help:
+        body = help_screen(P, st, width)
+    elif all_tabs:
+        body = []
+        for tname in TABS:
+            st.tab = tname
+            body += [""] + SCREENS[tname](P, st, width)
+    else:
+        body = SCREENS[st.tab](P, st, width)
+    # header
+    logo = P.chip(f" {P.ch['logo']} token stack ", "bg", "accent")
+    tabs = "".join(P.chip(f" {TAB_LABELS[t]} ", "bg", "accent2") if t == st.tab and not all_tabs else P.c("dim", f" {TAB_LABELS[t]} ") for t in TABS)
+    dev = st.data["team"]["device"] if st.data else ""
+    upd = time.strftime("%H:%M:%S", time.localtime(st.fetched)) if st.fetched else "-"
+    right = P.c("dim", (f"{dev} {P.ch['dot']} " if width >= 84 else "") + upd + (" ⟳" if st.refreshing and P.ch is UNI else ""))
+    head1 = f"{logo} {tabs}"
+    pad_mid = max(1, width - vlen(head1) - vlen(right) - 1)
+    head1 = clip(head1 + " " * pad_mid + right, width)
+    chips = []
+    for k, r in enumerate(td.RANGES, 1):
+        lab = f" {k} {td.RANGE_LABELS[r]} "
+        chips.append(P.chip(lab, "bg", "accent") if r == st.range else P.c("dim", lab))
+    proj = st.project if st.project != "all" else "all projects"
+    metric_hint = {"overview": dict(CHART_METRICS)[st.chart_metric], "team": RANK_LABELS[st.rank]}.get(st.tab)
+    head2 = " ".join(chips) + P.c("dim", f"   p {proj}") + (P.c("dim", f"   m {metric_hint}") if metric_hint and width >= 90 else "")
+    header = [head1, head2, P.c("border", P.ch["h"] * width)]
+    foot_keys = [("<>" if P.ch is ASC else "←→", "tabs"), ("1-4", "range"), ("p", "project"), ("m", "metric"), ("t", "theme"), ("r", "refresh"), ("?", "help"), ("q", "quit")]
+    footer = "  ".join(f"{P.c('accent', k, True)} {P.c('dim', d)}" for k, d in foot_keys)
+    if height is None:
+        lines = header + body
+        return [P.full(l, width) for l in lines]
+    room = max(1, height - len(header) - 1)
+    st.scroll = max(0, min(st.scroll, max(0, len(body) - room)))
+    view = body[st.scroll:st.scroll + room]
+    view += [""] * (room - len(view))
+    if len(body) > room:
+        footer = P.c("dim", f"{P.ch['up']}{P.ch['down']} scroll {st.scroll + 1}-{min(len(body), st.scroll + room)}/{len(body)}   ") + footer
+    return [P.full(l, width) for l in header + view + [footer]]
+
+
+# ------------------------------------------------------------------ terminal I/O
+class Terminal:
+    def __init__(self):
+        self.win = os.name == "nt"
+        self.resized = True
+
+    def __enter__(self):
+        if self.win:
+            import ctypes
+            k = ctypes.windll.kernel32
+            h = k.GetStdHandle(-11)
+            mode = ctypes.c_uint32()
+            if k.GetConsoleMode(h, ctypes.byref(mode)):
+                k.SetConsoleMode(h, mode.value | 0x0004)        # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        else:
+            import termios, tty
+            self.fd = sys.stdin.fileno()
+            self.old = termios.tcgetattr(self.fd)
+            tty.setcbreak(self.fd)
+            signal.signal(signal.SIGWINCH, lambda *_: setattr(self, "resized", True))
+            signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(SystemExit(0)))
+        sys.stdout.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J")
+        sys.stdout.flush()
+        return self
+
+    def __exit__(self, *exc):
+        sys.stdout.write("\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l")
+        sys.stdout.flush()
+        if not self.win:
+            import termios
+            termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
+
+    def size(self):
+        s = shutil.get_terminal_size((100, 30))
+        return s.columns, s.lines
+
+    def key(self, timeout):
+        if self.win:
+            import msvcrt
+            end = time.time() + timeout
+            while time.time() < end:
+                if msvcrt.kbhit():
+                    ch = msvcrt.getwch()
+                    if ch in ("\x00", "\xe0"):
+                        return {"H": "up", "P": "down", "K": "left", "M": "right", "I": "pgup", "Q": "pgdn", "G": "home", "O": "end", "\x0f": "shift-tab"}.get(msvcrt.getwch())
+                    return {"\t": "tab", "\x03": "ctrl-c", "\x1b": "esc", "\r": "enter"}.get(ch, ch)
+                time.sleep(0.02)
+            return None
+        import select
+        r, _, _ = select.select([self.fd], [], [], timeout)
+        if not r:
+            return None
+        data = os.read(self.fd, 16)
+        if data == b"\x1b":
+            return "esc"
+        seqs = {b"\x1b[A": "up", b"\x1b[B": "down", b"\x1b[C": "right", b"\x1b[D": "left", b"\x1bOA": "up", b"\x1bOB": "down", b"\x1bOC": "right", b"\x1bOD": "left",
+                b"\x1b[Z": "shift-tab", b"\x1b[5~": "pgup", b"\x1b[6~": "pgdn", b"\x1b[H": "home", b"\x1b[F": "end", b"\x1b[1~": "home", b"\x1b[4~": "end"}
+        if data in seqs:
+            return seqs[data]
+        ch = data.decode("utf-8", "ignore")[:1]
+        return {"\t": "tab", "\x03": "ctrl-c", "\r": "enter", "\n": "enter"}.get(ch, ch)
+
+
+DEMO = False
+
+
+def fetch(st, dirty):
+    def work():
+        st.refreshing = True; dirty.set()
+        try:
+            st.data = td.demo_payload() if DEMO else td.payload()
+            st.fetched, st.error = time.time(), None
+        except Exception as e:                          # never crash the UI on a bad transcript
+            st.error = str(e)
+        st.refreshing = False; dirty.set()
+    threading.Thread(target=work, daemon=True).start()
+
+
+def run_interactive(P0, st):
+    dirty = threading.Event()
+    with Terminal() as term:
+        fetch(st, dirty)
+        last_fetch, last_frame = time.time(), None
+        while True:
+            w, h = term.size()
+            painter = Painter(st.theme, P0.tc, P0.ch is UNI, P0.paint_bg)
+            if dirty.is_set() or term.resized or last_frame is None:
+                dirty.clear(); term.resized = False
+                try:
+                    lines = render(painter, st, w, h)
+                except Exception as e:
+                    lines = [painter.full(f"render error: {e}", w)]
+                frame = "".join(f"\x1b[{i + 1};1H{l}" for i, l in enumerate(lines[:h]))
+                if frame != last_frame:
+                    sys.stdout.write(frame); sys.stdout.flush(); last_frame = frame
+            k = term.key(0.25)
+            if time.time() - last_fetch > 10 and not st.refreshing:
+                last_fetch = time.time(); fetch(st, dirty)
+            if k is None:
+                if term.size() != (w, h):
+                    term.resized = True
+                continue
+            dirty.set()
+            if k in ("q", "ctrl-c"):
+                return
+            if k == "esc" or (k == "?" and st.help):
+                st.help = False
+            elif k == "?":
+                st.help = True
+            elif k in ("right", "tab", "l"):
+                st.tab = TABS[(TABS.index(st.tab) + 1) % 4]; st.scroll = 0
+            elif k in ("left", "shift-tab", "h"):
+                st.tab = TABS[(TABS.index(st.tab) - 1) % 4]; st.scroll = 0
+            elif k in ("1", "2", "3", "4"):
+                st.range = td.RANGES[int(k) - 1]; st.scroll = 0; td.save_config(tui_range=st.range)
+            elif k == "p" and st.data:
+                projs = ["all"] + sorted({b["p"] for b in st.data["buckets"]})
+                st.project = projs[(projs.index(st.project) + 1) % len(projs)] if st.project in projs else "all"
+            elif k == "m":
+                if st.tab == "team":
+                    st.rank = td.RANK_METRICS[(td.RANK_METRICS.index(st.rank) + 1) % 3]
+                else:
+                    ms = [m for m, _ in CHART_METRICS]; st.chart_metric = ms[(ms.index(st.chart_metric) + 1) % len(ms)]
+            elif k in ("t", "T"):
+                names = list(td.THEMES)
+                st.theme = names[(names.index(st.theme) + (1 if k == "t" else -1)) % len(names)]; td.save_config(tui_theme=st.theme)
+            elif k == "r":
+                last_fetch = time.time(); fetch(st, dirty)
+            elif k in ("down", "j"):
+                st.scroll += 1
+            elif k in ("up", "k"):
+                st.scroll = max(0, st.scroll - 1)
+            elif k == "pgdn":
+                st.scroll += max(1, term.size()[1] - 6)
+            elif k == "pgup":
+                st.scroll = max(0, st.scroll - max(1, term.size()[1] - 6))
+            elif k == "home":
+                st.scroll = 0
+            elif k == "end":
+                st.scroll = 10 ** 6
+
+
+# ------------------------------------------------------------------ entry point
+OWN_FLAGS = {"--demo", "--once", "--theme", "--range", "--tab", "--ascii", "--no-bg", "--color", "--width", "--themes", "--help", "-h", "--version"}
+
+
+def real_shell():
+    for p in ("/bin/dash", "/usr/bin/dash"):
+        if os.path.exists(p) and os.path.realpath(p) != os.path.realpath(__file__):
+            return p
+    return None
+
+
+def parse(argv):
+    opts, i = {"theme": None, "range": None, "tab": "overview", "width": None}, 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--theme", "--range", "--tab", "--width"):
+            opts[a[2:]] = argv[i + 1] if i + 1 < len(argv) else None; i += 1
+        else:
+            opts[a.lstrip("-").replace("-", "_")] = True
+        i += 1
+    return opts
+
+
+def main():
+    argv = sys.argv[1:]
+    shell_like = (argv and (not argv[0].startswith("-") or argv[0] not in OWN_FLAGS)) or (not argv and not (sys.stdin.isatty() and sys.stdout.isatty()))
+    if shell_like:
+        sh = real_shell()
+        if sh:
+            os.execv(sh, [sh] + argv)                   # behave exactly like the real dash shell
+        if argv:
+            sys.exit(f"dash: unknown option {argv[0]} (and no system dash shell found)")
+    o = parse(argv)
+    if o.get("help") or o.get("h"):
+        print(__doc__); return
+    if o.get("version"):
+        print("dash 0.1"); return
+    if o.get("themes"):
+        print("\n".join(td.THEMES)); return
+    cfg = td.load_config()
+    theme = o["theme"] or cfg.get("tui_theme") or td.DEFAULT_THEME
+    if theme not in td.THEMES:
+        sys.exit(f"unknown theme {theme!r}; choose from: {', '.join(td.THEMES)}")
+    rng = o["range"] or cfg.get("tui_range") or "30"
+    if rng not in td.RANGES:
+        sys.exit(f"unknown range {rng!r}; choose from: {', '.join(td.RANGES)}")
+    enc = (sys.stdout.encoding or "").lower()
+    global ELLIPSIS, DEMO
+    DEMO = bool(o.get("demo"))
+    unicode_ok = "utf" in enc and not o.get("ascii")
+    ELLIPSIS = "…" if unicode_ok else "~"
+    P = Painter(theme, supports_truecolor(), unicode_ok, not o.get("no_bg"), color=sys.stdout.isatty() or bool(o.get("color")))
+    st = State(theme, rng, o["tab"] if o["tab"] in TABS + ("all",) else "overview")
+    if o.get("once") or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        st.data = td.demo_payload() if DEMO else td.payload(); st.fetched = time.time()
+        width = int(o["width"]) if o.get("width") else shutil.get_terminal_size((100, 30)).columns
+        print("\n".join(render(P, st, max(40, width), None, all_tabs=(o["tab"] == "all"))))
+        return
+    run_interactive(P, st)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

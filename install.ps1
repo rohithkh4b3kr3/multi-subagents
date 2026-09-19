@@ -7,7 +7,7 @@
 .EXAMPLE
   .\install.ps1 -DryRun                 # print what would happen, change nothing
   .\install.ps1                         # asks once, then installs
-  .\install.ps1 -Yes -Skip rtk,ctx      # no prompt; skip components: rtk | crg | ts | ctx | cave | graphify | agents
+  .\install.ps1 -Yes -Skip rtk,ctx      # no prompt; skip components: rtk | crg | ts | ctx | cave | graphify | dash | agents
   .\install.ps1 -DefaultAgent           # make lean-main your default agent in ~\.claude\settings.json
   .\install.ps1 -AutoHistory            # index past chats locally and auto-recall relevant notes into new chats
   .\install.ps1 -StatusLine             # show conversation size in Claude Code's status line (colour-coded)
@@ -82,6 +82,7 @@ This will:
   - $(if (Want 'graphify') { "pip-install graphify into $Venv and register its /graphify skill (adds 3 lines to ~\.claude\CLAUDE.md)" } else { '(skip graphify)' })
   - $(if (Want 'cave')   { 'install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)' } else { '(skip caveman)' })
   - $(if (Want 'agents') { "copy 4 agents to $Agents and token-report to $Bin" } else { '(skip agents)' })
+$(if (Want 'dash') { '  - install the dash terminal dashboard (dash.cmd) to ' + $Bin })
 $(if ($AutoHistory) { '  - build a local search index of your chat text (secrets removed) and add 2 hooks: index at session start, auto-recall of strong matches on prompts (max 3 short notes, 4 per session)' })
 $(if ($StatusLine) { '  - set statusLine in ~\.claude\settings.json to show the conversation size (skipped if you already have one)' })
 $(if ($TeamDir) { "  - export this device's per-day token totals (numbers and device name only) to $TeamDir every 15 minutes via a scheduled task" })
@@ -221,6 +222,16 @@ function Set-SettingIfMissing([string]$Key, [string]$JsonValue, [string]$Label) 
   Write-Host "   $Label set"
 }
 
+if (Want 'dash') {
+  Say 'dash (terminal dashboard)'
+  $pyDash = if ($Py) { $Py } else { 'python' }
+  Run { New-Item -ItemType Directory -Force -Path $Bin | Out-Null } "mkdir $Bin"
+  Run { Copy-Item "$Here\bin\token_data.py" (Join-Path $Bin 'token_data.py') -Force } 'copy token_data.py'
+  Run { Copy-Item "$Here\bin\dash" (Join-Path $Bin 'dash.py') -Force } 'copy dash.py'
+  Run { Set-Content -Path (Join-Path $Bin 'dash.cmd') -Value "@echo off`r`n$pyDash `"%~dp0dash.py`" %*" -Encoding ASCII } 'write dash.cmd'
+  Write-Host '   type dash in Windows Terminal (colours need Windows Terminal or a recent console).'
+}
+
 if ($AutoHistory) {
   Say 'Local history memory (auto-index + auto-recall)'
   Run { & $Py (Join-Path $Bin 'token-history.py') index } 'token-history index'
@@ -243,5 +254,6 @@ if ($DefaultAgent) {
 Say 'Done'
 Write-Host 'Open a NEW terminal (PATH changed), restart Claude Code, then check:  claude mcp list   /context-mode:ctx-doctor   rtk gain'
 Write-Host 'Try:  "use lean-explorer to explain how <something> works"'
+Write-Host 'Terminal view: dash            (themes: t, keys: ?)'
 Write-Host 'Desktop view:  token-dashboard   (or "Token stack" in the Start Menu)'
 Write-Host 'After a week:  token-report --days 7'

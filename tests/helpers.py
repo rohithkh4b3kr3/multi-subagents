@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 
@@ -61,14 +62,17 @@ class TempHome(unittest.TestCase):
         os.environ["TOKEN_HISTORY_PROJECTS"] = self.projects
         os.environ.pop("TOKEN_STACK_DEVICE", None)
         # token_data fixes its paths at import time, so point them at the sandbox as well.
-        self._td = (token_data.ROOT, token_data.CONFIG_DIR, token_data.CONFIG_FILE)
+        self._td = (token_data.ROOT, token_data.CONFIG_DIR, token_data.CONFIG_FILE, token_data.HOME, token_data.CLAUDE)
         token_data.ROOT = self.projects
+        token_data.HOME, token_data.CLAUDE = self.home, os.path.join(self.home, ".claude")
+        token_data._rtk_cache = (time.time(), None)      # never call the real rtk from tests
         token_data.CONFIG_DIR = os.path.join(self.home, "cfg")
         token_data.CONFIG_FILE = os.path.join(token_data.CONFIG_DIR, "config.json")
         token_data._FILE_CACHE.clear()
 
     def tearDown(self):
-        token_data.ROOT, token_data.CONFIG_DIR, token_data.CONFIG_FILE = self._td
+        token_data.ROOT, token_data.CONFIG_DIR, token_data.CONFIG_FILE, token_data.HOME, token_data.CLAUDE = self._td
+        token_data._rtk_cache = (0.0, None)
         token_data._FILE_CACHE.clear()
         for k, v in self._saved.items():
             if v is None:
