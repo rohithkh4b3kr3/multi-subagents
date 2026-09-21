@@ -11,12 +11,13 @@
 #   ./install.sh --statusline    show conversation size in Claude Code's status line (colour-coded)
 #   ./install.sh --team-dir DIR [--device-name NAME]   share this device's usage totals (numbers only)
 #                                with the people on your Claude account via folder DIR; exports every 15 min
+#   ./install.sh --aiml          also install AI-Research-SKILLs (98 AI/ML research skills, 23 Claude Code plugins)
 #   WORKSPACE_ROOTS=~/code ./install.sh   folders token-savior may index (default: $HOME)
 #
 # Safe to re-run. Backs up ~/.claude/settings.json and ~/.claude.json first.
 set -euo pipefail
 
-DRY=0; YES=0; DEFAULT_AGENT=0; STATUSLINE=0; AUTO_HISTORY=0; TEAM_DIR=""; DEVICE_NAME=""; SKIP=","
+DRY=0; YES=0; DEFAULT_AGENT=0; STATUSLINE=0; AUTO_HISTORY=0; AIML=0; TEAM_DIR=""; DEVICE_NAME=""; SKIP=","
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
@@ -24,10 +25,11 @@ while [ $# -gt 0 ]; do
     --default-agent) DEFAULT_AGENT=1 ;;
     --statusline) STATUSLINE=1 ;;
     --auto-history) AUTO_HISTORY=1 ;;
+    --aiml) AIML=1 ;;
     --team-dir) TEAM_DIR="$2"; shift ;;
     --device-name) DEVICE_NAME="$2"; shift ;;
     --skip) SKIP=",$2,"; shift ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -67,6 +69,7 @@ This will:
   - $(want cave   && echo "install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)" || echo "(skip caveman)")
   - $(want dash   && echo "install the \`dash\` terminal dashboard to ~/.local/bin (it only opens in an interactive terminal; \`dash script.sh\` and \`dash -c ...\` still run the system dash shell)" || echo "(skip dash command)")
   - $(want agents && echo "copy 4 agents to ~/.claude/agents and token-report to ~/.local/bin" || echo "(skip agents)")
+$([ "$AIML" = 1 ] && echo "  - add the orchestra-research/AI-research-SKILLs marketplace and install all 23 category plugins (98 AI/ML research skills; needs git+SSH access to GitHub)")
 $([ "$AUTO_HISTORY" = 1 ] && echo "  - build a local search index of your chat text (secrets removed) and add 2 hooks: index at session start, auto-recall of strong matches on prompts (max 3 short notes, 4 per session)")
 $([ "$STATUSLINE" = 1 ] && echo "  - set statusLine in ~/.claude/settings.json to show the conversation size (skipped if you already have one)")
 $([ -n "$TEAM_DIR" ] && echo "  - export this device's per-day token totals (numbers + device name only) to $TEAM_DIR every 15 min via a user cron job")
@@ -176,6 +179,18 @@ Categories=Development;
 DESKTOP
     fi
   fi
+fi
+
+# ---- AI-Research-SKILLs (optional, off by default: heavy, off-mission) --
+if [ "$AIML" = 1 ]; then
+  say "AI-Research-SKILLs (98 AI/ML research skills, 23 categories)"
+  run claude plugin marketplace add orchestra-research/AI-research-SKILLs || echo "   (marketplace already added?)"
+  for c in model-architecture tokenization fine-tuning mechanistic-interpretability data-processing \
+           post-training safety-alignment distributed-training infrastructure optimization evaluation \
+           inference-serving mlops agents rag prompt-engineering observability multimodal \
+           emerging-techniques autoresearch ml-paper-writing ideation agent-native-research-artifact; do
+    run claude plugin install "$c@ai-research-skills"
+  done
 fi
 
 if [ "$DEFAULT_AGENT" = 1 ]; then

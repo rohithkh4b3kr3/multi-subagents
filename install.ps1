@@ -13,6 +13,7 @@
   .\install.ps1 -StatusLine             # show conversation size in Claude Code's status line (colour-coded)
   .\install.ps1 -TeamDir \\pc\share\usage -DeviceName alice-pc   # share this device's usage totals (numbers only), exported every 15 min
   .\install.ps1 -WorkspaceRoots C:\code # folders token-savior may index (default: your user folder)
+  .\install.ps1 -AIML                   # also install AI-Research-SKILLs (98 AI/ML research skills, 23 Claude Code plugins)
 
   If scripts are blocked:  powershell -ExecutionPolicy Bypass -File .\install.ps1
   Prefer WSL? Run ./install.sh inside WSL instead (Linux instructions apply).
@@ -23,6 +24,7 @@ param(
   [switch]$DefaultAgent,
   [switch]$StatusLine,
   [switch]$AutoHistory,
+  [switch]$AIML,
   [string]$TeamDir = '',
   [string]$DeviceName = '',
   [string[]]$Skip = @(),
@@ -83,6 +85,7 @@ This will:
   - $(if (Want 'cave')   { 'install the caveman plugin (shorter replies; changes how Claude writes, code stays exact)' } else { '(skip caveman)' })
   - $(if (Want 'agents') { "copy 4 agents to $Agents and token-report to $Bin" } else { '(skip agents)' })
 $(if (Want 'dash') { '  - install the dash terminal dashboard (dash.cmd) to ' + $Bin })
+$(if ($AIML) { '  - add the orchestra-research/AI-research-SKILLs marketplace and install all 23 category plugins (98 AI/ML research skills; needs git+SSH access to GitHub)' })
 $(if ($AutoHistory) { '  - build a local search index of your chat text (secrets removed) and add 2 hooks: index at session start, auto-recall of strong matches on prompts (max 3 short notes, 4 per session)' })
 $(if ($StatusLine) { '  - set statusLine in ~\.claude\settings.json to show the conversation size (skipped if you already have one)' })
 $(if ($TeamDir) { "  - export this device's per-day token totals (numbers and device name only) to $TeamDir every 15 minutes via a scheduled task" })
@@ -178,6 +181,19 @@ if (Want 'cave') {
   Say 'caveman (terse replies: fewer output tokens)'
   if (-not $DryRun) { Quiet { claude plugin marketplace add JuliusBrussee/caveman } } else { Write-Host '   [dry-run] claude plugin marketplace add JuliusBrussee/caveman' }
   Run { & claude plugin install caveman@caveman } 'claude plugin install caveman@caveman'
+}
+
+# ---- AI-Research-SKILLs (optional, off by default: heavy, off-mission) --
+if ($AIML) {
+  Say 'AI-Research-SKILLs (98 AI/ML research skills, 23 categories)'
+  if (-not $DryRun) { Quiet { claude plugin marketplace add orchestra-research/AI-research-SKILLs } } else { Write-Host '   [dry-run] claude plugin marketplace add orchestra-research/AI-research-SKILLs' }
+  $AimlCategories = @(
+    'model-architecture','tokenization','fine-tuning','mechanistic-interpretability','data-processing',
+    'post-training','safety-alignment','distributed-training','infrastructure','optimization','evaluation',
+    'inference-serving','mlops','agents','rag','prompt-engineering','observability','multimodal',
+    'emerging-techniques','autoresearch','ml-paper-writing','ideation','agent-native-research-artifact'
+  )
+  foreach ($c in $AimlCategories) { Run { & claude plugin install "$c@ai-research-skills" } "claude plugin install $c@ai-research-skills" }
 }
 
 # ---- agents + report script ---------------------------------------------

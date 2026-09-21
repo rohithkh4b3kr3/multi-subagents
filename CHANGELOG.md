@@ -10,3 +10,4 @@
 - Shared-account view: per-device export and "who is using how much"
 - `token-statusline` and `/handoff` for the growing-conversation cost
 - `token-history` local searchable chat memory with guarded auto-recall and `/recall`
+- `--aiml` / `-AIML` (off by default): installs AI-Research-SKILLs, 98 AI/ML research skills across 23 Claude Code plugins

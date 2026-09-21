@@ -9,6 +9,13 @@ claude plugin uninstall context-mode@context-mode 2>/dev/null
 claude plugin marketplace remove context-mode 2>/dev/null
 claude plugin uninstall caveman@caveman 2>/dev/null
 claude plugin marketplace remove caveman 2>/dev/null
+for c in model-architecture tokenization fine-tuning mechanistic-interpretability data-processing \
+         post-training safety-alignment distributed-training infrastructure optimization evaluation \
+         inference-serving mlops agents rag prompt-engineering observability multimodal \
+         emerging-techniques autoresearch ml-paper-writing ideation agent-native-research-artifact; do
+  claude plugin uninstall "$c@ai-research-skills" 2>/dev/null
+done
+claude plugin marketplace remove ai-research-skills 2>/dev/null
 claude mcp remove -s user code-review-graph 2>/dev/null
 claude mcp remove -s user token-savior 2>/dev/null
 "$STACK/venv/bin/graphify" uninstall 2>/dev/null

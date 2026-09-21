@@ -12,6 +12,10 @@ if (Get-Command rtk -ErrorAction SilentlyContinue) { & rtk init -g --uninstall }
 & claude plugin marketplace remove context-mode 2>&1 | Out-Null
 & claude plugin uninstall caveman@caveman 2>&1 | Out-Null
 & claude plugin marketplace remove caveman 2>&1 | Out-Null
+foreach ($c in 'model-architecture','tokenization','fine-tuning','mechanistic-interpretability','data-processing','post-training','safety-alignment','distributed-training','infrastructure','optimization','evaluation','inference-serving','mlops','agents','rag','prompt-engineering','observability','multimodal','emerging-techniques','autoresearch','ml-paper-writing','ideation','agent-native-research-artifact') {
+  & claude plugin uninstall "$c@ai-research-skills" 2>&1 | Out-Null
+}
+& claude plugin marketplace remove ai-research-skills 2>&1 | Out-Null
 & claude mcp remove -s user code-review-graph 2>&1 | Out-Null
 & claude mcp remove -s user token-savior 2>&1 | Out-Null
 & "$Home_\.local\share\multi-subagents\venv\Scripts\graphify.exe" uninstall 2>&1 | Out-Null

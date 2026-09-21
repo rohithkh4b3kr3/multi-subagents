@@ -67,6 +67,7 @@ Options:
 ./install.sh -y                       # no confirmation prompt
 ./install.sh --skip rtk,ctx           # skip components: rtk | crg | ts | ctx | cave | graphify | agents
 ./install.sh --default-agent          # also make lean-main your default agent
+./install.sh --aiml                   # also install AI-Research-SKILLs (98 AI/ML research skills, 23 plugins) — off by default
 WORKSPACE_ROOTS=~/code ./install.sh   # folders token-savior may index (default: $HOME)
 ```
 
@@ -87,7 +88,7 @@ cd multi-subagents
 .\install.ps1             # asks once, then installs
 ```
 
-Options: `-Yes` (no prompt), `-Skip rtk,ctx` (components: `rtk | crg | ts | ctx | cave | graphify | agents`), `-DefaultAgent`, `-WorkspaceRoots C:\code`.
+Options: `-Yes` (no prompt), `-Skip rtk,ctx` (components: `rtk | crg | ts | ctx | cave | graphify | agents`), `-DefaultAgent`, `-WorkspaceRoots C:\code`, `-AIML` (also install AI-Research-SKILLs — off by default).
 If PowerShell blocks the script: `powershell -ExecutionPolicy Bypass -File .\install.ps1`.
 
 What is different on Windows: rtk is downloaded from its GitHub release (SHA-256 verified) into `%USERPROFILE%\.local\bin`, and that folder is added to your **user PATH**; the Python tools go in a venv under `%USERPROFILE%\.local\share\multi-subagents`; `token-report` is installed as `token-report.cmd`. **Open a new terminal afterwards** so the PATH change takes effect, then restart Claude Code. Remove everything with `.\uninstall.ps1`.
@@ -184,11 +185,11 @@ Both tools read only your local `~/.claude/projects/**/*.jsonl` transcripts. Usa
 
 ## More AI/ML and coding skills worth a look
 
-Not installed by this repo's installer — links only, so pick what fits and install each yourself.
+Only AI-Research-SKILLs is wired into this repo's installer (`--aiml` / `-AIML`, off by default — it's 98 skills across 23 Claude Code plugins, outside this repo's core token-saving scope, and needs git+SSH access to GitHub for `claude plugin marketplace add`). The rest are links only; pick what fits and install each yourself.
 
 | Project | What it does | Install |
 |---|---|---|
-| [AI-Research-SKILLs](https://github.com/Orchestra-Research/AI-research-SKILLs) | 98 skills covering the AI/ML research lifecycle: architecture, tokenization, fine-tuning, mech-interp, data processing, post-training, safety/alignment, distributed training | `git clone https://github.com/Orchestra-Research/AI-research-SKILLs` and follow its own README |
+| [AI-Research-SKILLs](https://github.com/Orchestra-Research/AI-research-SKILLs) | 98 skills covering the AI/ML research lifecycle: architecture, tokenization, fine-tuning, mech-interp, data processing, post-training, safety/alignment, distributed training | `./install.sh --aiml` (`-AIML` on Windows), or by hand: `claude plugin marketplace add orchestra-research/AI-research-SKILLs` then `claude plugin install <category>@ai-research-skills` per category |
 | [OmniRoute](https://github.com/diegosouzapw/OmniRoute) | MIT AI gateway: one endpoint, 352 providers, 1200+ models (Kimi, Claude, GPT, Gemini, GLM, DeepSeek, MiniMax), quota-aware auto-fallback; already uses rtk + caveman-style compression | `git clone https://github.com/diegosouzapw/OmniRoute` and follow its own README |
 | [book-to-skill](https://github.com/virgiliojr94/book-to-skill) | Turns a technical book/PDF (or a `docs/` folder) into a queryable Claude Code skill instead of dumping it into context | `git clone https://github.com/virgiliojr94/book-to-skill` and follow its own README |
 | [open-notebook](https://github.com/lfnovo/open-notebook) | Self-hosted, privacy-first NotebookLM alternative: multi-model RAG over PDFs/audio/video/web, podcast generation. Full app (Python/FastAPI + Next.js + SurrealDB), not a Claude Code skill — separate service | `git clone https://github.com/lfnovo/open-notebook` and follow its own README |
