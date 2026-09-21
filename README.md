@@ -182,6 +182,18 @@ Both tools read only your local `~/.claude/projects/**/*.jsonl` transcripts. Usa
 - token-savior's published benchmark is unverified (its README says so). Keep it only if `token-report` shows it being used; otherwise remove it (`./install.sh --skip ts` on a fresh install, or `claude mcp remove -s user token-savior`).
 - The biggest saving is free: run `/clear` between unrelated tasks, and `/compact <focus>` in long ones.
 
+## More AI/ML and coding skills worth a look
+
+Not installed by this repo's installer — links only, so pick what fits and install each yourself.
+
+| Project | What it does | Install |
+|---|---|---|
+| [AI-Research-SKILLs](https://github.com/Orchestra-Research/AI-research-SKILLs) | 98 skills covering the AI/ML research lifecycle: architecture, tokenization, fine-tuning, mech-interp, data processing, post-training, safety/alignment, distributed training | `git clone https://github.com/Orchestra-Research/AI-research-SKILLs` and follow its own README |
+| [OmniRoute](https://github.com/diegosouzapw/OmniRoute) | MIT AI gateway: one endpoint, 352 providers, 1200+ models (Kimi, Claude, GPT, Gemini, GLM, DeepSeek, MiniMax), quota-aware auto-fallback; already uses rtk + caveman-style compression | `git clone https://github.com/diegosouzapw/OmniRoute` and follow its own README |
+| [book-to-skill](https://github.com/virgiliojr94/book-to-skill) | Turns a technical book/PDF (or a `docs/` folder) into a queryable Claude Code skill instead of dumping it into context | `git clone https://github.com/virgiliojr94/book-to-skill` and follow its own README |
+| [open-notebook](https://github.com/lfnovo/open-notebook) | Self-hosted, privacy-first NotebookLM alternative: multi-model RAG over PDFs/audio/video/web, podcast generation. Full app (Python/FastAPI + Next.js + SurrealDB), not a Claude Code skill — separate service | `git clone https://github.com/lfnovo/open-notebook` and follow its own README |
+| [strix](https://github.com/usestrix/strix) | Autonomous AI pentesting agent: runs exploits, validates vulnerabilities with real PoCs. **For authorized security testing only** — it executes code and shell commands against the target it's pointed at. Not wired into this repo's installer or agents on purpose | `git clone https://github.com/usestrix/strix` and follow its own README |
+
 ## Considered and not included
 
 | Tool | Why not |
