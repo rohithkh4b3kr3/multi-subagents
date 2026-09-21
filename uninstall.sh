@@ -33,7 +33,7 @@ if os.path.exists(p):
         json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
 PY
 rm -f "$HOME/.claude/agents/lean-main.md" "$HOME/.claude/agents/lean-coder.md" "$HOME/.claude/agents/lean-explorer.md" \
-      "$HOME/.claude/agents/lean-reviewer.md" "$HOME/.local/bin/token-report" \
+      "$HOME/.claude/agents/lean-reviewer.md" "$HOME/.claude/agents/lean-aiml.md" "$HOME/.local/bin/token-report" \
       "$HOME/.local/bin/token_data.py" "$HOME/.local/bin/token-dashboard" "$HOME/.local/bin/token-statusline" "$HOME/.claude/commands/handoff.md" \
       "$HOME/.local/share/applications/token-dashboard.desktop" "$HOME/.local/share/icons/token-dashboard.svg"
 rm -f "$HOME/.local/bin/dash"

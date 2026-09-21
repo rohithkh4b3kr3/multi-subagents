@@ -39,6 +39,7 @@ Split by **role**, not by tool. A real task ("review this change") needs several
 | `lean-explorer` | haiku | "How does X work?", "where is Y used?", log triage | No |
 | `lean-reviewer` | sonnet | Bugs and blast radius of a diff, before you commit or merge | No |
 | `lean-coder` | sonnet | Edits, refactors, bug fixes in unfamiliar or multi-file code | Yes |
+| `lean-aiml` | your default model | AI/ML router: recognizes the domain (fine-tuning, post-training/RL, distributed training, inference, RAG, agents, eval, interpretability, safety, multimodal, research...) and works through the matching [AI-Research-SKILLs](#more-aiml-and-coding-skills-worth-a-look) skill instead of guessing at framework usage. Installed only with `--aiml` / `-AIML` | Yes |
 
 `lean-explorer` and `lean-reviewer` have `Edit` and `Write` disabled and are told not to change anything through the shell (their `Bash` is still available for read-only commands, so this last part is an instruction, not a hard block).
 
@@ -227,6 +228,7 @@ agents/lean-main.md       optional default agent (delegates, routes tools)
 agents/lean-coder.md      edit agent (sonnet)
 agents/lean-explorer.md   read-only exploration agent (haiku)
 agents/lean-reviewer.md   read-only review agent (sonnet)
+agents/lean-aiml.md       AI/ML domain router (installed only with --aiml)
 bin/dash                  terminal dashboard (opens with `dash`)
 bin/token-dashboard       desktop window with usage charts and stack status
 docs/                     screenshots (from built-in demo data)

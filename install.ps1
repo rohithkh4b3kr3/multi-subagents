@@ -194,13 +194,15 @@ if ($AIML) {
     'emerging-techniques','autoresearch','ml-paper-writing','ideation','agent-native-research-artifact'
   )
   foreach ($c in $AimlCategories) { Run { & claude plugin install "$c@ai-research-skills" } "claude plugin install $c@ai-research-skills" }
+  Run { New-Item -ItemType Directory -Force -Path $Agents | Out-Null } "mkdir $Agents"
+  Run { Copy-Item "$Here\agents\lean-aiml.md" $Agents -Force } "copy lean-aiml.md -> $Agents"
 }
 
 # ---- agents + report script ---------------------------------------------
 if (Want 'agents') {
   Say 'Subagents and token-report'
   Run { New-Item -ItemType Directory -Force -Path $Agents | Out-Null } "mkdir $Agents"
-  foreach ($f in Get-ChildItem "$Here\agents\*.md") { Run { Copy-Item $f.FullName $Agents -Force } "copy $($f.Name) -> $Agents" }
+  foreach ($f in Get-ChildItem "$Here\agents\*.md" -Exclude 'lean-aiml.md') { Run { Copy-Item $f.FullName $Agents -Force } "copy $($f.Name) -> $Agents" }
   Run { Copy-Item "$Here\bin\token-report" (Join-Path $Bin 'token-report.py') -Force } "copy token-report.py -> $Bin"
   Run { Copy-Item "$Here\bin\token_data.py" (Join-Path $Bin 'token_data.py') -Force } "copy token_data.py -> $Bin"
   Run { Copy-Item "$Here\bin\token-statusline" (Join-Path $Bin 'token-statusline.py') -Force } "copy token-statusline.py -> $Bin"

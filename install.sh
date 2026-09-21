@@ -154,7 +154,7 @@ fi
 if want agents; then
   say "Subagents and token-report"
   run mkdir -p "$HOME/.claude/agents" "$HOME/.local/bin"
-  for f in "$HERE"/agents/*.md; do run cp "$f" "$HOME/.claude/agents/"; done
+  for f in "$HERE"/agents/*.md; do [ "$(basename "$f")" = "lean-aiml.md" ] && continue; run cp "$f" "$HOME/.claude/agents/"; done
   run install -m 0755 "$HERE/bin/token-report" "$HOME/.local/bin/token-report"
   run install -m 0644 "$HERE/bin/token_data.py" "$HOME/.local/bin/token_data.py"
   run install -m 0755 "$HERE/bin/token-statusline" "$HOME/.local/bin/token-statusline"
@@ -191,6 +191,8 @@ if [ "$AIML" = 1 ]; then
            emerging-techniques autoresearch ml-paper-writing ideation agent-native-research-artifact; do
     run claude plugin install "$c@ai-research-skills"
   done
+  run mkdir -p "$HOME/.claude/agents"
+  run cp "$HERE/agents/lean-aiml.md" "$HOME/.claude/agents/"
 fi
 
 if [ "$DEFAULT_AGENT" = 1 ]; then
