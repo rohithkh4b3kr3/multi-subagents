@@ -1,0 +1,3 @@
+[submodule "plugins/hacking-skills"]
+	path = plugins/hacking-skills
+	url = https://github.com/securityfortech/hacking-skills.git

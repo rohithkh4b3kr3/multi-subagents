@@ -12,12 +12,13 @@
 #   ./install.sh --team-dir DIR [--device-name NAME]   share this device's usage totals (numbers only)
 #                                with the people on your Claude account via folder DIR; exports every 15 min
 #   ./install.sh --aiml          also install AI-Research-SKILLs (98 AI/ML research skills, 23 Claude Code plugins)
+#   ./install.sh --hack          also install hacking-skills (bug bounty/pentest/CTF/code-review skills, vendored as a submodule)
 #   WORKSPACE_ROOTS=~/code ./install.sh   folders token-savior may index (default: $HOME)
 #
 # Safe to re-run. Backs up ~/.claude/settings.json and ~/.claude.json first.
 set -euo pipefail
 
-DRY=0; YES=0; DEFAULT_AGENT=0; STATUSLINE=0; AUTO_HISTORY=0; AIML=0; TEAM_DIR=""; DEVICE_NAME=""; SKIP=","
+DRY=0; YES=0; DEFAULT_AGENT=0; STATUSLINE=0; AUTO_HISTORY=0; AIML=0; HACK=0; TEAM_DIR=""; DEVICE_NAME=""; SKIP=","
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
@@ -26,6 +27,7 @@ while [ $# -gt 0 ]; do
     --statusline) STATUSLINE=1 ;;
     --auto-history) AUTO_HISTORY=1 ;;
     --aiml) AIML=1 ;;
+    --hack) HACK=1 ;;
     --team-dir) TEAM_DIR="$2"; shift ;;
     --device-name) DEVICE_NAME="$2"; shift ;;
     --skip) SKIP=",$2,"; shift ;;
@@ -70,6 +72,7 @@ This will:
   - $(want dash   && echo "install the \`dash\` terminal dashboard to ~/.local/bin (it only opens in an interactive terminal; \`dash script.sh\` and \`dash -c ...\` still run the system dash shell)" || echo "(skip dash command)")
   - $(want agents && echo "copy 4 agents to ~/.claude/agents and token-report to ~/.local/bin" || echo "(skip agents)")
 $([ "$AIML" = 1 ] && echo "  - add the orchestra-research/AI-research-SKILLs marketplace and install all 23 category plugins (98 AI/ML research skills; needs git+SSH access to GitHub)")
+$([ "$HACK" = 1 ] && echo "  - add the vendored plugins/hacking-skills submodule as a local Claude Code plugin marketplace and install its web/mobile/cicd/meta skill collections (bug bounty/pentest/CTF/code-review skills; for targets you own or are authorized to test)")
 $([ "$AUTO_HISTORY" = 1 ] && echo "  - build a local search index of your chat text (secrets removed) and add 2 hooks: index at session start, auto-recall of strong matches on prompts (max 3 short notes, 4 per session)")
 $([ "$STATUSLINE" = 1 ] && echo "  - set statusLine in ~/.claude/settings.json to show the conversation size (skipped if you already have one)")
 $([ -n "$TEAM_DIR" ] && echo "  - export this device's per-day token totals (numbers + device name only) to $TEAM_DIR every 15 min via a user cron job")
@@ -193,6 +196,23 @@ if [ "$AIML" = 1 ]; then
   done
   run mkdir -p "$HOME/.claude/agents"
   run cp "$HERE/agents/lean-aiml.md" "$HOME/.claude/agents/"
+fi
+
+# ---- hacking-skills (optional, off by default: security-testing tooling) --
+if [ "$HACK" = 1 ]; then
+  say "hacking-skills (bug bounty / pentest / CTF / code-review skills)"
+  if [ ! -f "$HERE/plugins/hacking-skills/.claude-plugin/marketplace.json" ] && [ -d "$HERE/.git" ]; then
+    run git -C "$HERE" submodule update --init --recursive -- plugins/hacking-skills
+  fi
+  if [ ! -f "$HERE/plugins/hacking-skills/.claude-plugin/marketplace.json" ]; then
+    echo "   plugins/hacking-skills is empty — run: git submodule update --init --recursive" >&2
+  else
+    run claude plugin marketplace add "$HERE/plugins/hacking-skills" || echo "   (marketplace already added?)"
+    for c in web mobile cicd meta; do
+      run claude plugin install "$c@hacking-skills"
+    done
+    echo "   Use only against targets you own or are explicitly authorized to test."
+  fi
 fi
 
 if [ "$DEFAULT_AGENT" = 1 ]; then

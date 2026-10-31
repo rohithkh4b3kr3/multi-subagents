@@ -14,6 +14,7 @@
   .\install.ps1 -TeamDir \\pc\share\usage -DeviceName alice-pc   # share this device's usage totals (numbers only), exported every 15 min
   .\install.ps1 -WorkspaceRoots C:\code # folders token-savior may index (default: your user folder)
   .\install.ps1 -AIML                   # also install AI-Research-SKILLs (98 AI/ML research skills, 23 Claude Code plugins)
+  .\install.ps1 -Hack                   # also install hacking-skills (bug bounty/pentest/CTF/code-review skills, vendored as a submodule)
 
   If scripts are blocked:  powershell -ExecutionPolicy Bypass -File .\install.ps1
   Prefer WSL? Run ./install.sh inside WSL instead (Linux instructions apply).
@@ -25,6 +26,7 @@ param(
   [switch]$StatusLine,
   [switch]$AutoHistory,
   [switch]$AIML,
+  [switch]$Hack,
   [string]$TeamDir = '',
   [string]$DeviceName = '',
   [string[]]$Skip = @(),
@@ -86,6 +88,7 @@ This will:
   - $(if (Want 'agents') { "copy 4 agents to $Agents and token-report to $Bin" } else { '(skip agents)' })
 $(if (Want 'dash') { '  - install the dash terminal dashboard (dash.cmd) to ' + $Bin })
 $(if ($AIML) { '  - add the orchestra-research/AI-research-SKILLs marketplace and install all 23 category plugins (98 AI/ML research skills; needs git+SSH access to GitHub)' })
+$(if ($Hack) { '  - add the vendored plugins\hacking-skills submodule as a local Claude Code plugin marketplace and install its web/mobile/cicd/meta skill collections (bug bounty/pentest/CTF/code-review skills; for targets you own or are authorized to test)' })
 $(if ($AutoHistory) { '  - build a local search index of your chat text (secrets removed) and add 2 hooks: index at session start, auto-recall of strong matches on prompts (max 3 short notes, 4 per session)' })
 $(if ($StatusLine) { '  - set statusLine in ~\.claude\settings.json to show the conversation size (skipped if you already have one)' })
 $(if ($TeamDir) { "  - export this device's per-day token totals (numbers and device name only) to $TeamDir every 15 minutes via a scheduled task" })
@@ -196,6 +199,23 @@ if ($AIML) {
   foreach ($c in $AimlCategories) { Run { & claude plugin install "$c@ai-research-skills" } "claude plugin install $c@ai-research-skills" }
   Run { New-Item -ItemType Directory -Force -Path $Agents | Out-Null } "mkdir $Agents"
   Run { Copy-Item "$Here\agents\lean-aiml.md" $Agents -Force } "copy lean-aiml.md -> $Agents"
+}
+
+# ---- hacking-skills (optional, off by default: security-testing tooling) --
+if ($Hack) {
+  Say 'hacking-skills (bug bounty / pentest / CTF / code-review skills)'
+  $HackManifest = Join-Path $Here 'plugins\hacking-skills\.claude-plugin\marketplace.json'
+  if (-not (Test-Path $HackManifest) -and (Test-Path (Join-Path $Here '.git'))) {
+    Run { git -C $Here submodule update --init --recursive -- plugins/hacking-skills } 'git submodule update --init --recursive -- plugins/hacking-skills'
+  }
+  if (-not (Test-Path $HackManifest)) {
+    Write-Host '   plugins\hacking-skills is empty - run: git submodule update --init --recursive'
+  } else {
+    $HackPath = Join-Path $Here 'plugins\hacking-skills'
+    if (-not $DryRun) { Quiet { & claude plugin marketplace add $HackPath } } else { Write-Host "   [dry-run] claude plugin marketplace add $HackPath" }
+    foreach ($c in 'web','mobile','cicd','meta') { Run { & claude plugin install "$c@hacking-skills" } "claude plugin install $c@hacking-skills" }
+    Write-Host '   Use only against targets you own or are explicitly authorized to test.'
+  }
 }
 
 # ---- agents + report script ---------------------------------------------
