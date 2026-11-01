@@ -13,12 +13,13 @@
 #                                with the people on your Claude account via folder DIR; exports every 15 min
 #   ./install.sh --aiml          also install AI-Research-SKILLs (98 AI/ML research skills, 23 Claude Code plugins)
 #   ./install.sh --hack          also install hacking-skills (bug bounty/pentest/CTF/code-review skills, vendored as a submodule)
+#   ./install.sh --ecc            also install ECC (71 agents/314 skills operator layer, vendored as a submodule; hooks forced OFF to avoid clashing with rtk/ctx/caveman)
 #   WORKSPACE_ROOTS=~/code ./install.sh   folders token-savior may index (default: $HOME)
 #
 # Safe to re-run. Backs up ~/.claude/settings.json and ~/.claude.json first.
 set -euo pipefail
 
-DRY=0; YES=0; DEFAULT_AGENT=0; STATUSLINE=0; AUTO_HISTORY=0; AIML=0; HACK=0; TEAM_DIR=""; DEVICE_NAME=""; SKIP=","
+DRY=0; YES=0; DEFAULT_AGENT=0; STATUSLINE=0; AUTO_HISTORY=0; AIML=0; HACK=0; ECC=0; TEAM_DIR=""; DEVICE_NAME=""; SKIP=","
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
@@ -28,10 +29,11 @@ while [ $# -gt 0 ]; do
     --auto-history) AUTO_HISTORY=1 ;;
     --aiml) AIML=1 ;;
     --hack) HACK=1 ;;
+    --ecc) ECC=1 ;;
     --team-dir) TEAM_DIR="$2"; shift ;;
     --device-name) DEVICE_NAME="$2"; shift ;;
     --skip) SKIP=",$2,"; shift ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -73,6 +75,7 @@ This will:
   - $(want agents && echo "copy 4 agents to ~/.claude/agents and token-report to ~/.local/bin" || echo "(skip agents)")
 $([ "$AIML" = 1 ] && echo "  - add the orchestra-research/AI-research-SKILLs marketplace and install all 23 category plugins (98 AI/ML research skills; needs git+SSH access to GitHub)")
 $([ "$HACK" = 1 ] && echo "  - add the vendored plugins/hacking-skills submodule as a local Claude Code plugin marketplace and install its web/mobile/cicd/meta skill collections (bug bounty/pentest/CTF/code-review skills; for targets you own or are authorized to test)")
+$([ "$ECC" = 1 ] && echo "  - add the vendored plugins/ecc submodule as a local Claude Code plugin marketplace and install ecc@ecc with hooks_enabled=false (71 agents/314 skills operator layer; hooks forced off to avoid clashing with rtk/context-mode/caveman)")
 $([ "$AUTO_HISTORY" = 1 ] && echo "  - build a local search index of your chat text (secrets removed) and add 2 hooks: index at session start, auto-recall of strong matches on prompts (max 3 short notes, 4 per session)")
 $([ "$STATUSLINE" = 1 ] && echo "  - set statusLine in ~/.claude/settings.json to show the conversation size (skipped if you already have one)")
 $([ -n "$TEAM_DIR" ] && echo "  - export this device's per-day token totals (numbers + device name only) to $TEAM_DIR every 15 min via a user cron job")
@@ -212,6 +215,20 @@ if [ "$HACK" = 1 ]; then
       run claude plugin install "$c@hacking-skills"
     done
     echo "   Use only against targets you own or are explicitly authorized to test."
+  fi
+fi
+
+# ---- ECC (optional, off by default: huge scope, hooks forced off) --------
+if [ "$ECC" = 1 ]; then
+  say "ECC (71 agents / 314 skills operator layer; hooks forced off)"
+  if [ ! -f "$HERE/plugins/ecc/.claude-plugin/plugin.json" ] && [ -d "$HERE/.git" ]; then
+    run git -C "$HERE" submodule update --init --recursive -- plugins/ecc
+  fi
+  if [ ! -f "$HERE/plugins/ecc/.claude-plugin/plugin.json" ]; then
+    echo "   plugins/ecc is empty — run: git submodule update --init --recursive" >&2
+  else
+    run claude plugin marketplace add "$HERE/plugins/ecc" || echo "   (marketplace already added?)"
+    run claude plugin install ecc@ecc --config hooks_enabled=false
   fi
 fi
 
